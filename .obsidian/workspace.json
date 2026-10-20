@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "8fc042d05cd5ebcb",
+        "id": "8bdd18547fd09f55",
         "type": "tabs",
         "children": [
           {
-            "id": "f431d18bdd2c3df6",
+            "id": "8b1a5cb617419a35",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "Residual Connection과 Gradient 소실 처음부터 정리"
+              "title": "새 탭"
             }
           }
         ]
@@ -99,7 +95,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -183,7 +178,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 254.78125
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -199,11 +194,11 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "69c21618ff508236",
+  "active": "b73dd8c5834edb08",
   "lastOpenFiles": [
+    "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
     "residual_gradient_lab.py",
     "AI/AI Basics/Basics/Residual.md",
-    "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
     "AI/AI Basics/Basics/residual_gradient_lab.py",
     "AI/AI Basics/Theory/Theory.md",
     "AI/AI Basics/Basics",
@@ -223,7 +218,6 @@
     "AI/AI Basics/Materials/IE540/L11. Policy Opt-DPG, DDPG, CEM.pdf",
     "AI/AI Basics/Materials/IE540/L4. MC methods.pdf",
     "AI/AI Basics/Materials/IE540/L12. MAB (1).pdf",
-    "AI/AI Basics/Materials/IE540/L8. DQN (1).pdf",
     "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/03-샘플링.md",
     "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/02-GAN-학습의-어려움.md",
     "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/01-정규화-계층.md",
