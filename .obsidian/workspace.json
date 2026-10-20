@@ -1,0 +1,252 @@
+{
+  "main": {
+    "id": "1d202bf9c4304153",
+    "type": "split",
+    "children": [
+      {
+        "id": "8fc042d05cd5ebcb",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f431d18bdd2c3df6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Residual Connection과 Gradient 소실 처음부터 정리"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "4cb770882a8b1692",
+    "type": "split",
+    "children": [
+      {
+        "id": "72196e47d538e935",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "69c21618ff508236",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "파일 탐색기"
+            }
+          },
+          {
+            "id": "9193dd9535a2b0a0",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "검색"
+            }
+          },
+          {
+            "id": "44d11695c8d243c2",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "북마크"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 448.70703125
+  },
+  "right": {
+    "id": "1523954508eb5892",
+    "type": "split",
+    "children": [
+      {
+        "id": "2014aad3a0f40793",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "07d180a763980b44",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "백링크"
+            }
+          },
+          {
+            "id": "6d8c3e09b2731507",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "나가는 링크"
+            }
+          },
+          {
+            "id": "387b7a8e6579f248",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "태그"
+            }
+          },
+          {
+            "id": "39cd0a72c1d79d20",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "모든 속성"
+            }
+          },
+          {
+            "id": "ef3eaa34d91a4121",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "개요"
+            }
+          },
+          {
+            "id": "b73dd8c5834edb08",
+            "type": "leaf",
+            "state": {
+              "type": "git-view",
+              "state": {},
+              "icon": "git-pull-request",
+              "title": "Source Control"
+            }
+          }
+        ],
+        "currentTab": 5
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:빠른 전환기 열기": false,
+      "graph:그래프 뷰 열기": false,
+      "canvas:새 캔버스 만들기": false,
+      "daily-notes:오늘의 일일 노트 열기": false,
+      "templates:템플릿 삽입": false,
+      "command-palette:명령어 팔레트 열기": false,
+      "bases:새 베이스 생성하기": false,
+      "table-editor-obsidian:Advanced Tables Toolbar": false,
+      "obsidian-excalidraw-plugin:New drawing": false,
+      "obsidian-git:Open Git source control": false
+    }
+  },
+  "active": "69c21618ff508236",
+  "lastOpenFiles": [
+    "residual_gradient_lab.py",
+    "AI/AI Basics/Basics/Residual.md",
+    "AI/AI Basics/Basics/Residual Connection과 Gradient 소실 처음부터 정리.md",
+    "AI/AI Basics/Basics/residual_gradient_lab.py",
+    "AI/AI Basics/Theory/Theory.md",
+    "AI/AI Basics/Basics",
+    "AI/AI Basics/무제.md",
+    "AI/AI Basics/Theory/ODE, SDE.md",
+    "AI/AI Basics/Theory/mml-book.pdf",
+    "AI/AI Basics/Theory/확률,정보이론 및 정보 기하학.md",
+    "AI/AI Basics/Theory/최적화 이론.md",
+    "AI/AI Basics/Theory/다변수 미적분학.md",
+    "AI/AI Basics/Theory/고급 선형 대수.md",
+    "AI/AI Basics/Materials/IE540/L0. Course Logistics (1).pdf",
+    "5장 전체 구조.excalidraw.md",
+    "무제.base",
+    "5장 전체 구조.excalidraw 1.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/혁태/7장 전체 구조.md",
+    "AI/AI Basics/Materials/IE540/L10. Policy Opt-TRPO, PPO (1).pdf",
+    "AI/AI Basics/Materials/IE540/L11. Policy Opt-DPG, DDPG, CEM.pdf",
+    "AI/AI Basics/Materials/IE540/L4. MC methods.pdf",
+    "AI/AI Basics/Materials/IE540/L12. MAB (1).pdf",
+    "AI/AI Basics/Materials/IE540/L8. DQN (1).pdf",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/03-샘플링.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/02-GAN-학습의-어려움.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/상엽/자료/01-정규화-계층.md",
+    "AI/GenAI Study/책/06-검색증강생성-RAG/상민/Drawing 2026-10-08 22.17.44.excalidraw.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/상민/README.md",
+    "Pasted image 20261018201142.png",
+    "Pasted image 20261018201025.png",
+    "Pasted image 20261018200857.png",
+    "Pasted image 20261018200638.png",
+    "Pasted image 20261018200615.png",
+    "Pasted image 20261018200554.png",
+    "Pasted image 20261018200113.png",
+    "Pasted image 20261018194932.png",
+    "Pasted image 20261018194723.png",
+    "Pasted image 20261018193241.png",
+    "AI/GenAI Study/책/05-이미지-캡셔닝/상엽/5장 전체 구조.excalidraw.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/혁태/7장 전체 구조.excalidraw.md",
+    "AI/AI Basics/Theory/Materials.md",
+    "AI/Papers/AI Basics.md",
+    "AI/Papers/VAE.md",
+    "AI/AI Basics/Materials/Blogs.md",
+    "AI/GenAI Study/책/07-사실적인-얼굴-생성/혁태/실험/README.md",
+    "AI/AI Basics/Materials/Neural Networks and Deep Learning/07_Chapter5_Why_are_deep_neural_networks_hard_to_train.md",
+    "AI/무제 파일.canvas"
+  ]
+}
