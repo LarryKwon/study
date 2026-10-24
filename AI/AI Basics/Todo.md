@@ -1,0 +1,26 @@
+- GNN 학습한 거 내용 정리하기
+- Normalization(Batch Norm, Layer Norm 내용 정리)
+- Pre-LN, Post-LN 내용 정리하기
+- 수학 공부한 거 정리하기
+	- SVD
+	- https://angeloyeo.github.io/2019/08/17/Layerwise_Relevance_Propagation.html - 여기 내용 정리
+	- ### 가장 효율적인 현실적 돌파 전략
+	- 교과서를 처음부터 끝까지 정독하는(Bottom-up) 방식은 지치기 쉽습니다. 이미 공학적 기초(미적분, 선형대수, 확률)가 있으시다면 **Top-down + 핀셋 보충** 방식이 가장 빠릅니다.
+	- **1단계 (행렬 미적분 & 선형대수 감각 깨우기 - 약 1~2주):**
+    
+    - 앞서 소개한 Terence Parr & Jeremy Howard의 아티클 ***"The Matrix Calculus You Need For Deep Learning"***과 _MML Book_의 **4장(행렬 분해/SVD)**, 5장(벡터 미적분/테일러 전개)만 발췌해서 읽습니다.
+    - **2단계 (정보기하학 & 곡률 마스터 - 약 1주):**
+    
+    - **EWC 원논문**과 James Martens의 Natural Gradient 튜토리얼 앞부분(Section 1~4)을 읽으며 "로그 우도 미분 $\to$ 피셔 행렬 $\to$ 헤시안 $\to$ KL 발산의 2차 미분"이 하나로 이어지는 과정을 손으로 한 번만 직접 적어봅니다.
+    - **3단계 (동역학 & NTK 마스터 - 약 1주):**
+    - 선형 미분방정식 $\frac{dy}{dt} = -Hy$의 해가 고유값 분해를 통해 각 축별 지수 감쇠($e^{-\lambda_i t}$)로 쪼개지는 과정을 확인한 뒤 **NTK 논문**이나 **Mirzadeh의 Continual Learning 손실 지형 논문**을 읽으면 수식이 막힘없이 뚫립니다.
+	- https://gemini.google.com/app/09813f5ac1ba6303
+	- PMLR
+- Drop-out 이해하기
+- 내용 추리기
+- nanoChat 해보기
+- Christopher Olah의 블로그 (`colah.github.io`) & _Distill.pub_
+	- RNN, LSTM 읽기
+	- Calculus on Computational Graphs: Backpropagation
+- https://newsletter.languagemodels.co/ 발췌 읽기
+- 

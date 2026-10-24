@@ -2,5 +2,11 @@
   "table-editor-obsidian",
   "dataview",
   "obsidian-excalidraw-plugin",
-  "obsidian-git"
+  "obsidian-git",
+  "jupymd",
+  "omnisearch",
+  "obsidian-latex-suite",
+  "python-viewer",
+  "excalidraw-extras",
+  "jupyter-viewer"
 ]
