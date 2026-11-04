@@ -1,0 +1,1535 @@
+                                                  Dominant vs. Dominated: Concept-Level
+                                                  Generative Collapse in Diffusion Models
+
+                                                                  Hayeon Jeong and Jong-Seok Lee⋆
+
+                                                                      Yonsei University, Korea
+                                                            {hayeon.jeong, jong-seok.lee}@yonsei.ac.kr
+
+
+
+                                                 Abstract. Text-to-image diffusion models have attracted significant at-
+                                                 tention for their ability to generate diverse, high-fidelity images. How-
+                                                 ever, in multi-concept generation, one concept token often dominates
+                                                 the output while others are suppressed—a phenomenon we term the
+arXiv:2512.20666v2 [cs.LG] 22 Jul 2026
+
+
+
+
+                                                 Dominant-vs-Dominated (DvD) imbalance. To systematically study this
+                                                 failure mode, we introduce DominanceBench and examine its underlying
+                                                 causes from both data and internal-mechanistic perspectives. Our con-
+                                                 trolled fine-tuning study, which mimics concept learning during diffusion-
+                                                 model training, shows that concepts learned from visually homogeneous
+                                                 (low-variation) concept-specific training images exhibit stronger dom-
+                                                 inance when composed with others. Cross-attention analysis indicates
+                                                 that dominant tokens concentrate attention in early denoising steps, fol-
+                                                 lowed by reduced representation of competing concepts. Head-ablation
+                                                 analysis further shows that this dominance is distributed across attention
+                                                 heads rather than localized. Overall, these findings characterize DvD as
+                                                 a systematic concept-level failure mode and provide a basis for more re-
+                                                 liable and controllable multi-concept generation. DominanceBench will
+                                                 be released upon publication.
+
+                                                 Keywords: Text-to-Image Generation · Multi-Concept Generation · Dif-
+                                                 fusion Models
+
+
+                                         1     Introduction
+
+                                         Text-to-image diffusion models [15,21,31,36,38,41,55] have achieved remarkable
+                                         success in generating high-quality images from textual descriptions. However,
+                                         ensuring the model’s representational fidelity to textual concepts [54] remains a
+                                         fundamental challenge. Recent research has extensively explored this limitation
+                                         from complementary perspectives. One line of work investigates memorization
+                                         [5, 7, 17, 20, 24, 40, 42, 46, 47, 52], where models reproduce near-identical images
+                                         across different random seeds, primarily due to excessive duplication of specific
+                                         image-prompt pairs in training data. Another line studies compositional text-
+                                         to-image generation, aiming to reduce concept interference and binding errors
+                                         under multi-concept prompts [3, 12, 16, 34].
+                                         ⋆
+                                             Corresponding author.
+2         H. Jeong, J.-S. Lee
+
+                              “Neuschwanstein Castle Coaster”
+
+
+
+
+                 (a) SD 1.4                                     (b) SDXL
+Fig. 1: Five-seed generations for “Neuschwanstein Castle coaster” using SD 1.4 and
+SDXL, showing DvD behavior.
+
+    In this work, we examine a complementary aspect that arises from the inter-
+play of these two dimensions—training data characteristics and multi-concept
+compositional capability. Specifically, we focus on visual dominance in multi-
+concept generation: one concept visually dominates the generation while the
+other is suppressed and rarely appears. For example, as shown in Fig. 1, we
+generate images with Stable Diffusion (SD) v1.4 and SDXL using the prompt
+“Neuschwanstein Castle coaster” with different random seeds. The castle con-
+cept is consistently presented in the generated images, whereas the coaster con-
+cept rarely appears. We refer to this as the Dominant-vs-Dominated (DvD) phe-
+nomenon.
+    Motivated by these observations, we study DvD as a concept-level imbalance
+induced by visual dominance between concepts. Unlike memorization, which con-
+cerns prompt-specific reproduction, and prior work that aims to improve compo-
+sitional text-to-image generation under multi-concept prompts, we hypothesize
+that limited variation in a concept’s training images (visual homogeneity) can
+suppress other concepts during multi-concept generation. We conjecture that it
+may do so by inducing relatively rigid visual priors that dominate compositions
+with more diverse concepts.
+    To test our hypothesis, we conduct controlled fine-tuning studies that sim-
+ulate concept learning: we learn new concepts from curated training image sets
+while systematically varying within-concept visual diversity, and observe that
+dominance increases monotonically as diversity decreases. To reveal the internal
+mechanisms of DvD, we analyze cross-attention dynamics and head ablations,
+revealing that (1) DvD prompts exhibit significantly higher attention concentra-
+tion on dominant tokens in lower-spatial-resolution layers in the U-Net (UNet) at
+early denoising steps, (2) dominated concepts experience rapid attention decay
+in the early phase of the denoising process, and (3) unlike memorization which
+is localized to specific heads, DvD emerges from distributed cooperation among
+multiple attention heads. To support this analysis, we curate DominanceBench
+(Sec. 3.3), a benchmark of 300 two-concept prompts with strong DvD behavior.
+    Our main contributions are:
+    – We characterize the DvD phenomenon and curate DominanceBench for its
+      systematic evaluation.
+    – We demonstrate through controlled fine-tuning studies on newly learned
+      concepts that limited variation in concept-specific training images plays a
+      causal role in DvD.
+                                                   Dominant vs. Dominated         3
+
+ – We reveal the internal mechanisms of DvD through cross-attention analysis
+   and head ablations, identifying where (lower-spatial-resolution layers), when
+   (early timesteps), and how (distributed across heads) dominance manifests
+   during generation.
+
+
+
+2     Related Work
+
+Text-to-image diffusion models have rapidly advanced in fidelity and controllabil-
+ity [15,21,31,36,38,41,55], with surveys summarizing this progress [4,53,54]. Two
+research directions are especially relevant: memorization in diffusion models, and
+compositional text-to-image generation under multi-concept prompts. Our work
+connects these directions by studying concept-level dominance in multi-concept
+generation and its relationship to training data properties.
+
+
+2.1   Memorization in Diffusion Models
+
+Memorization refers to the reproduction of near-identical training images. It has
+been studied from both empirical and mechanistic perspectives [5, 46, 47]. Prior
+work analyzes memorization signals in cross-attention patterns and token-level
+attention [7, 40], in prediction magnitudes and detection criteria [52], and in lo-
+calized internal units such as neurons [17]. Complementary theoretical lenses con-
+nect memorization to geometry and sharpness of learned distributions [20,24,42].
+We use memorization as a reference point when interpreting DvD mechanisms.
+
+
+2.2   Multi-Concept Generation and Evaluation
+
+Multi-concept prompts pose persistent challenges for text-to-image diffusion
+models, including concept interference, binding errors, and missing subjects. A
+broad line of work seeks to improve compositional generation and editing via
+attention control and guidance—for example, through attention-based semantic
+steering [6], cross-attention control for edits [3, 10, 16], attention-map alignment
+and control [39, 50], and test-time attention segregation [1]. Other approaches
+address compositionality through model- and objective-level designs, including
+composable diffusion and energy-based variants [13, 14, 29, 48, 57], as well as
+VLM-based feedback to better satisfy complex prompts [51].
+    Multi-concept customization stresses compositional behavior when combin-
+ing user-specific concepts [12, 22, 26, 27, 30, 34, 43]. In parallel, benchmarks and
+evaluator studies aim to measure compositional fidelity and diagnose failure
+modes at scale, often using pretrained VLMs as automated evaluators [11, 18,
+19, 23, 44, 49]. Building on these advances in compositional generation and eval-
+uation, we take a data-centric perspective and investigate an upstream driver of
+systematic dominance: concept-level visual homogeneity in training images.
+4      H. Jeong, J.-S. Lee
+
+
+
+
+       (a) Neuschwanstein Castle                         (b) Coaster
+Fig. 2: Training data examples from LAION [45]: Neuschwanstein Castle exhibits min-
+imal visual variation, while coasters appear in diverse forms and contexts.
+
+3     The Dominant-vs-Dominated Phenomenon
+3.1   Phenomenon Definition
+Prior work studies memorization—reproducing near-identical training examples
+from duplicated image–text pairs [5, 47, 52]—and methods that improve multi-
+concept compositional generation [3, 12, 16, 34]. Here we connect these perspec-
+tives by examining an upstream data property—concept-level visual homogene-
+ity in training images—that can induce systematic visual dominance in multi-
+concept generation.
+    We define the DvD phenomenon as cases where one concept (the dominant
+concept) consistently visually dominates the generation, while the other (the
+dominated concept) is strongly suppressed and rarely represented.
+
+Illustrative example. As illustrated in Fig. 1, the prompt “Neuschwanstein
+Castle coaster” demonstrates this phenomenon: across multiple random seeds,
+the distinctive architecture of Neuschwanstein Castle dominates the generation
+while the coaster concept is suppressed. This pattern persists across SD 1.4 and
+SD 2.1 and is also observed in high-DvD newer-model examples, indicating that
+DvD is not simply a model-specific artifact.
+
+Hypothesis: training-image visual homogeneity. We hypothesize that
+DvD stems from the visual homogeneity (i.e., limited variation) of concept-
+specific training images: concepts learned from visually homogeneous images
+may form relatively rigid visual priors that dominate others learned from more
+diverse images. To investigate this, we examine training images from the LAION
+dataset [45] for both concepts (Fig. 2). As shown in Fig. 2a, Neuschwanstein Cas-
+tle, being a unique landmark, appears with highly consistent visual features—the
+iconic white facade, pointed towers, and alpine setting remain nearly identical
+across all training images. In contrast, Fig. 2b reveals that coasters exist in di-
+verse forms: round plates, square tiles, and decorative pieces with various colors,
+patterns, and materials. These differences in training-image diversity can lead
+diffusion models to develop internal visual representations with different levels
+of flexibility.
+
+3.2   Quantification Metric
+To quantify dominance, we define the DvD Score based on whether each concept
+is visually present in the generated image. We focus on two-concept prompts for
+                                                                                           Dominant vs. Dominated                 5
+
+a direct dominant–dominated comparison. Each concept is evaluated through
+N binary questions using the VLM evaluator Qwen2.5-VL [2]. Let C1 and C2
+denote the numbers of “Yes” responses for the two concepts, respectively. The
+DvD Score is defined as:
+
+                         \text {\emph {DvD Score}} = \frac {C_1 \times (N - C_2)}{N^2} \times 100.                              (1)
+
+    This metric ranges from 0 to 100, with higher values indicating stronger dom-
+inance. We set N = 5 with concept-type-specific questions (e.g., for artists: “Is
+this image painted in the artistic style of Van Gogh?”). Appendix S1.2 provides
+the full set of questions and per-image response examples.
+
+
+3.3   DominanceBench
+
+To systematically investigate the mechanisms of DvD, we propose DominanceBench,
+a benchmark of 300 two-concept prompts collected from the LAION dataset [45],
+on which SD was trained. We focus on prompts that pair low-diversity concepts
+(artists, landmarks, and characters) with everyday objects; the full concept lists
+are provided in Appendix S1.1. A LAION-based visual-homogeneity analysis in
+Appendix S1.1 supports this category-level grouping.
+
+Algorithm 1 DominanceBench DvD-Score-                                                                DvD Score Comparison
+Based Prompt Filtering                                                                  SD 1.4
+
+                                                                                        SD 2.1
+1: Collect candidate prompts p from LAION
+                                                                      Model Version
+
+
+
+
+   (20–50 chars) that contain a low-diversity                                            SDXL
+   concept and an object.                                                               PixArt
+2: for each prompt p do
+                                                                                      Balanced
+3:   Generate 10 images {I1 , . . . , I10 } with
+                                                                                                 0   20   40        60     80   100
+     SD 1.4 (different seeds).                                                                            DvD Score Mean
+4:   Compute DvD Score for each image Ii .                              Fig. 3: 10-seed mean DvD Scores for
+5:   Count n = |{i : DvD Score(Ii ) > 36}|.                             DominanceBench across SD 1.4, SD
+6:   if n ≥ 7 then                                                      2.1, SDXL, and PixArt, with balanced
+7:      Add p to DominanceBench.                                        prompts for reference. Dashed line:
+8:   end if                                                             threshold (36).
+9: end for
+
+    More specifically, the 300 prompts in DominanceBench are selected by fil-
+tering prompts from LAION, as shown in Algorithm 1. In short, if 7 out of 10
+images generated from a candidate prompt with different random seeds show
+a DvD Score higher than 36, the prompt is considered as a DvD prompt and
+included in DominanceBench. Here, the threshold is determined as follows. We
+build a separate set of 300 balanced two-concept prompts where both concepts
+successfully appear in the generated images (details in Appendix S2.1). Then,
+the DvD Scores are measured for the 10 images per balanced prompt with dif-
+ferent random seeds. The third quartile of the score distribution is chosen as
+the threshold, as shown in Fig. 3. In the figure, it can be observed that the
+DominanceBench prompts have higher DvD Scores than the balanced prompts.
+6         H. Jeong, J.-S. Lee
+
+While the initial collection is performed using SD 1.4, a substantial portion of the
+DominanceBench prompts still exhibit high dominance in SD 2.1, as shown in
+Fig. 3. As an additional cross-architecture check, we evaluate DominanceBench
+on newer text-to-image models. DvD remains pronounced in SDXL [36] and
+PixArt [8], with 85.33% and 67.33% of prompts exceeding the threshold, re-
+spectively. These high above-threshold rates suggest that DvD is not solely an
+artifact of SD 1.4 or SD 2.1. We use SD 1.4 and SD 2.1 as the primary models
+for the mechanistic analyses in the remainder of the paper.
+    We assess the reliability of the VLM-based evaluation with human annota-
+tions on 300 generated images from DominanceBench and balanced prompts on
+SD 1.4 and SD 2.1, using yes/ambiguous/no concept-presence labels. Across 17
+annotators, the majority human label matches the Qwen2.5-VL label for 85.0% of
+DominanceBench images and 90.0% of balanced images. Additional prompt-level
+robustness checks, including independently constructed prompts and threshold
+sweeps, are provided in Appendix S1.3 and S1.4.
+
+4      Analysis
+In this section, we analyze the causes and mechanisms of DvD. We first validate
+our data-centric hypothesis via UNet fine-tuning experiments (Sec. 4.1), then
+analyze cross-attention dynamics (Sec. 4.2), and finally conduct a head ablation
+study (Sec. 4.3) to compare DvD with memorization.
+
+4.1     Verifying the Role of Visual Homogeneity in Training Images
+
+    Takeaway 1
+    Lower visual diversity can lead to stronger dominance. When a con-
+    cept is learned from limited variations, its representation becomes overfit to
+    specific visual patterns, causing it to dominate other concepts in multi-concept
+    compositions.
+
+    In Sec. 3.1, we hypothesized that DvD stems from the visual homogeneity
+(i.e., limited variation) of concept-specific training images. We test this hypoth-
+esis through controlled fine-tuning experiments that systematically vary within-
+concept visual diversity.
+
+Experimental Setup. We follow the DreamBooth setup for learning new con-
+cepts in SD fine-tuning [43]. Specifically, we fine-tune three separate models to
+learn “sks castle”, “sks mountain”, and “sks arena”, each defined by pairing the
+identifier token “sks” with a class word. We choose “sks” as a token without a
+meaningful semantic prior, helping isolate concept learning from pre-existing se-
+mantic associations in the text encoder. To obtain concept-specific images with
+controllable diversity, we retrieve LAION images [45] corresponding to three spe-
+cific landmarks for castle, mountain, and arena, respectively—Neuschwanstein
+Castle, Machu Picchu, and Colosseum—whose images are visually highly sim-
+ilar, making it straightforward to construct highly homogeneous training sets.
+                                                      Dominant vs. Dominated            7
+
+
+
+
+                (a) CLIP                                      (b) DINOv2
+Fig. 4: Diversity control and validation for the constructed training sets. We show
+mean intra-set cosine similarity (mean ± std) across homogeneity configurations Dk
+(k = 1, . . . , 5), measured using CLIP (used to construct the sets) and DINOv2 (used
+for validation). Higher similarity indicates more visually homogeneous training images.
+
+We use these sites as the visual targets for the three class words while keeping
+the training prompt generic (to avoid name-specific priors).
+    We fine-tune only the UNet (keeping the text encoder fixed) of SD 1.4 and SD
+2.1 to learn these concepts. This setting provides a controlled way to study how
+training-image diversity affects concept learning in SD fine-tuning. We train all
+models for 100 epochs with Adam [25], using a learning rate of 1 × 10−5 . We use
+LAION captions only for retrieval; to construct image–text pairs for fine-tuning,
+we generate a caption for each selected image using BLIP-2 [28].
+
+Diversity Control. We construct five 120-image training sets Dk (k = 1, . . . , 5),
+where a smaller k indicates a more visually homogeneous image set.
+    For each target concept, we retrieve images whose LAION captions contain
+the corresponding proper name. We then construct each Dk by grouping and
+sampling images based on a cosine similarity threshold τk of CLIP [37] embed-
+dings with (τ1 , . . . , τ5 ) = (0.95, 0.90, 0.85, 0.80, 0.75), where a higher τk yields a
+more visually homogeneous set (Fig. 4a).
+    The controlled diversity ordering based on CLIP is additionally verified us-
+ing DINOv2 [33] embeddings. Fig. 4b confirms that the overall diversity trend
+is consistent in both embeddings, supporting the reliability of the constructed
+training sets.
+
+Evaluation. We evaluate dominance on 100 two-concept prompts that pair
+a learned concept (e.g., “sks castle”) with diverse partner concepts. We first
+construct 50 base prompts where the learned concept appears first, followed by
+the partner concept. Then, in order to eliminate concept-order effects, a flipped-
+order version of each base prompt is obtained, yielding 100 prompts in total. For
+each prompt, we generate 10 images per fine-tuned model variant using different
+random seeds, compute the DvD Score (Sec. 3.2), and report per-prompt mean
+scores, treating the learned concept as C1 . Example evaluation prompts are
+provided in Appendix S3.1.
+
+Results. Fig. 5 summarizes the effect of diversity control for the learned con-
+cepts. For both SD 1.4 and SD 2.1, the distributions of per-prompt mean DvD
+8       H. Jeong, J.-S. Lee
+
+
+
+
+        (a) Castle                       (b) Mountain                     (c) Arena
+Fig. 5: Effect of visual diversity control on dominance. We show the distributions of
+per-prompt mean DvD Scores across different homogeneity configurations (D1 –D5 ) for
+the three learned concepts.
+                               “ A sks castle with a flower pot nearby”
+
+
+
+
+                              “ A sks mountain with a clock nearby”
+
+
+
+
+                                     “ A car with a sks arena”
+
+
+
+
+Fig. 6: Representative generation examples across homogeneity configurations for the
+three learned concepts. Images outlined in red indicate DvD cases.
+
+Scores tend to shift toward higher values as within-concept diversity decreases
+(smaller k in Dk ).
+    Collectively, these controlled experiments show that, in this concept-learning
+setting, visual homogeneity in training images can increase dominance in multi-
+concept generation (higher DvD Scores). This suggests that learning a concept
+from limited variations can yield overly rigid visual priors that suppress other
+concepts. A supplementary re-evaluation with InternVL2.5-8B, using the same
+generated images, prompts, and concept-presence questions, shows the same
+qualitative trend; details are provided in Appendix S3.3. As a qualitative il-
+lustration, Fig. 6 shows generated examples across homogeneity configurations
+for each concept.
+
+4.2   Cross-Attention Dynamics in DvD
+DvD can be viewed as a competition between concept word tokens in a multi-
+concept prompt, where one token’s conditioning influence often dominates and
+suppresses the others. Since prompt information is injected into the UNet pri-
+marily through cross-attention, we analyze cross-attention patterns in Domi-
+nanceBench prompts to localize where attention becomes imbalanced and how
+                                                                                                                                                                        Dominant vs. Dominated                        9
+
+
+
+
+           (a) SD 1.4: Focus score                                                                                                                                             (b) SD 2.1: Focus score
+Fig. 7: Focus scores across UNet layers at the first denoising step (t = 50) for the
+DominanceBench prompts and the balanced prompts.
+
+this imbalance evolves through denoising timesteps. We first fix the denoising
+timestep (t = 50) and scan UNet layers to identify where attention concentrates,
+then track how attention to the dominant and dominated tokens changes over
+subsequent timesteps in these layers.
+Layer-wise Attention Focus at the First Denoising Step.
+
+ Takeaway 2
+ The dominant token in a DvD prompt tends to receive the maximum attention
+ in low-resolution blocks already at the first denoising step.
+
+    To quantify how strongly the model focuses on specific tokens, we define a
+focus score:
+
+                              \label {eq:focus_score} \text {Focus}^{(\ell , t)} = \frac {\max _i a_i^{(\ell , t)} - \bar {a}_{\text {others}}^{(\ell , t)}}{H(\mathbf {a}^{(\ell , t)}) / \log _2 N + \epsilon }    (2)
+
+                    (ℓ,t)                           (ℓ,t)
+where a(ℓ,t) = (a1 , . . . , aN ) represents the cross-attention weights over N
+prompt tokens at layer ℓ and timestep t (averaged across all spatial locations
+                               (ℓ,t)                                         (ℓ,t)
+and attention heads), maxi ai        is the maximum attention weight, āothers is the
+                                             (ℓ,t)
+mean of all other attention weights, H(a           ) is the entropy of the attention dis-
+tribution, and ϵ is a small constant for numerical stability. We provide additional
+motivation for this entropy-based normalization in Appendix S5.
+    Intuitively, the focus score captures whether cross-attention forms a sharp
+peak on a single token or is distributed evenly across the prompt. Higher values
+indicate stronger single-token concentration.
+
+Experimental Setup. We compute focus scores in all UNet layers during the
+first denoising step (t = 50). Following the UNet ordering of cross-attention mod-
+ules, layers 1–6 correspond to the downsampling blocks, layer 7 to the mid block,
+and layers 8–16 to the upsampling blocks. In particular, layers 5–10 comprise
+the low-resolution stage.
+
+Results. In Fig. 7, the DominanceBench prompts show a distinctive pattern in
+focus scores (i.e., significantly higher focus scores) in the low-resolution stage
+(layers 5–10) compared to the balanced prompts. This indicates that cross-
+attention becomes sharply peaked already at the first denoising step, i.e., one
+token receives excessive attention weights.
+10      H. Jeong, J.-S. Lee
+
+                                           Top-1 Token per Spatial Query (t=50→40)
+                              𝑡 = 50
+                              𝑡 = 49
+                              𝑡 = 48
+                              𝑡 = 47
+                              𝑡 = 46
+                              𝑡 = 45
+                              𝑡 = 44
+                              𝑡 = 43
+                              𝑡 = 42
+                              𝑡 = 41
+                              𝑡 = 40
+
+
+
+
+            (a)                                (b)                                   (c)     (d)
+     Layer-wise (t = 50)               Top-1 (t = 50 → 40)                           DvD   Balanced
+Fig. 8: Example cross-attention patterns for a DominanceBench prompt. (a) Layer-
+wise token attention at the first denoising step (t = 50). (b) Top-1 token maps across
+spatial locations from t = 50 to t = 40; regions where the dominated token (“pouch”) is
+top-1 rapidly diminish. (c) DvD outcome (dominated concept missing). (d) Balanced
+outcome (both concepts present).
+
+
+
+    We further examine which specific concept token is emphasized. Since layers
+8–10 show a particularly large focus score gap between DominanceBench and
+balanced prompts in both SD 1.4 and SD 2.1, we identify the maximally at-
+tended token in these layers. In SD 1.4, the dominant concept token receives the
+maximum attention in 253 out of 300 DominanceBench prompts (84.33%). Sim-
+ilarly in SD 2.1, the dominant concept token is the most frequently maximally
+attended token (162 out of 300 prompts; 54.00%).
+    This confirms that the influence of the dominant concept token becomes
+amplified through the cross-attention operation in the low-resolution stage at
+the first denoising step. In what follows, we investigate the temporal dynamics
+of the influences of the dominant and dominated concepts over the subsequent
+denoising steps.
+
+Temporal Dynamics of Cross-Attention.
+
+ Takeaway 3
+ Dominated concepts rapidly lose attention in early denoising
+ timesteps. Within the first few denoising steps, attention to the dominated
+ token fades, while the dominant token retains a clear peak.
+
+    In some DvD prompts, the dominated token still receives substantial atten-
+tion at t = 50, yet it can fail to appear in the final image. Fig. 8 shows one
+such case (“The Colosseum Rome Italy Carry-all Pouch”): at t = 50, the token
+“pouch” is strongly attended in the mid block (Fig. 8a). Yet the spatial locations
+where it is the top-1 token (highest-attended token per spatial location) quickly
+shrink from t = 50 to t = 40 (Fig. 8b), leading to a DvD outcome (Fig. 8c)
+rather than balanced generation (Fig. 8d). To characterize when this reduction
+occurs, we track how attention to the dominant and dominated tokens evolves
+over early denoising timesteps.
+Experimental Setup. Using the dominant/dominated token labels provided
+by DominanceBench, we compute layer-wise attention at the first denoising step
+(t = 50) to decide where to track each token (Fig. 9). Across both models, the
+                                                                                                              Dominant vs. Dominated           11
+
+
+
+
+              (a) SD 1.4                                                                                             (b) SD 2.1
+Fig. 9: Layer-wise token attention at the first denoising step (t = 50) for the dominant
+and dominated tokens (averaged over prompts).
+
+
+
+
+    (a) Example 1          (b) Example 2                                                  (c) All (SD 1.4)                  (d) All (SD 2.1)
+Fig. 10: Attention change (∆α) across timestep intervals. (a,b) Two SD 1.4 examples.
+(c,d) Aggregated trends over all DominanceBench prompts on SD 1.4 and SD 2.1,
+respectively. The dominated token (blue) tends to show negative changes from the ear-
+liest timesteps, while the dominant token (red) maintains positive or near-zero changes
+initially.
+
+dominant token shows the peak in the first upsampling blocks (layers 8–10),
+while the dominated token peaks in the mid block (layer 7). We therefore track
+the dominant token in layers 8–10 and the dominated token in layer 7 over early
+denoising timesteps.
+   To quantify the temporal evolution of attention for these tokens, we define
+                                                      (ℓ,t)    (ℓ,t) (ℓ,t)
+the attention deviation for token i at timestep t as αi     = ai − āothers (with
+the same averaging across spatial locations and heads as in Eq. (2)). Note that
+we use the raw attention deviation rather than the entropy-normalized focus
+score, since we track changes over timesteps within a single prompt (with fixed
+prompt length). Then, the attention change is:
+                                \Delta \alpha _i^{(\ell , t)} = \alpha _i^{(\ell , t+1)} - \alpha _i^{(\ell , t)}                          (3)
+In what follows, we average the attention changes over ℓ ∈ {8, 9, 10} for the
+dominant token and use ℓ = 7 for dominated tokens. Negative ∆α indicates
+decreasing concentration on that token.
+
+Results. Fig. 10 summarizes attention changes (∆α) across early timestep in-
+tervals. Individual prompts (Fig. 10a,10b) show that the dominated token al-
+ready has negative ∆α values in the earliest timestep interval (50–40), indicating
+rapid attention decrease. The prompt-averaged curves over all DominanceBench
+prompts (Fig. 10c,10d) show a similar pattern on both SD 1.4 and SD 2.1: the
+dominated token tends to stay below zero, while the dominant token remains
+positive or near-zero initially. This suggests that the imbalance is set up within
+the first few timesteps, and the dominated token loses its conditioning effect as
+denoising progresses.
+12     H. Jeong, J.-S. Lee
+
+4.3   Head Ablation Study
+ Takeaway 4
+ At the head level, our ablation results suggest that DvD is more
+ distributed across attention heads, whereas memorization tends to
+ be localized to a small subset of heads. Accordingly, DvD is harder to
+ mitigate by ablating only a few heads.
+
+    Building on our cross-attention analysis, we move from layer-level patterns
+to individual attention heads—a practical unit of intervention within multi-head
+attention. We aim to answer the following question: is DvD driven by a small set
+of critical heads, or does it emerge from distributed contributions across heads?
+    To ground this head-level analysis, we use memorization as a reference point.
+Neuron-level analyses suggest that memorization can be localized to a small
+number of internal units [17]. Motivated by this, we use head ablation as a coarse
+probe to compare head-level localization between DvD and memorization, using
+300 DvD prompts from DominanceBench and 500 memorized prompts identified
+in prior work [5], respectively.
+Head Ablation Procedure. To assess each head’s contribution, we ablate
+target heads by scaling their attention logits (pre-softmax scores) with a small
+factor throughout denoising. Formally, the ablated attention logit for head h in
+layer ℓ is:
+
+                       \label {eq:head_ablation} \tilde {s}^{(\ell ,h)} = \begin {cases} \varepsilon \cdot s^{(\ell ,h)}, & \text {if } \ell =\ell ^\star ,\ h\in \mathcal {H}^\star , \\[3pt] s^{(\ell ,h)}, & \text {otherwise}, \end {cases}    (4)
+
+where s(ℓ,h) ∈ RP ×N are the attention logits for head h over P spatial queries
+and N text tokens (computed at each denoising step), ℓ⋆ is the target layer,
+H⋆ ⊆ {1, . . . , H} is the set of ablated heads, and ε = 10−5 is a small scaling
+factor that effectively suppresses the head’s influence.
+
+Outcome Classification. We classify each generation result after ablation
+into three categories using Self-Supervised Descriptor for Image Copy Detection
+(SSCD) [35], Learned Perceptual Image Patch Similarity (LPIPS) [56], and (for
+DvD prompts) the DvD Score (Sec. 3.2), as illustrated in Fig. 11. SSCD measures
+similarity to training images (lower indicates less similarity / less copying in
+our usage). LPIPS measures perceptual distance (higher indicates larger visual
+change).
+  – Mitigated: The target phenomenon (memorization or DvD) is successfully
+    reduced.
+      • Memorization: SSCD < 0.5 and LPIPS > 0.6
+      • DvD: LPIPS > 0.5 and DvD Score < 36
+  – Unchanged: The ablated output remains similar to the unablated genera-
+    tion and the target phenomenon persists.
+      • Memorization: SSCD ≥ 0.5 or LPIPS ≤ 0.6
+      • DvD: LPIPS ≤ 0.5 or DvD Score ≥ 36
+  – Others: The generated image quality degrades substantially (e.g., severe
+    artifacts or incoherent structure).
+                                                                                     Dominant vs. Dominated                              13
+
+                                                                                “Emma Watson Set to Star Alongside Tom Hanks
+                “ Renegade RSS Laptop Backpack - View 31 ”
+                                                                             in Film Adaptation of Dave Eggers' <i>The Circle</i>”
+Memorization
+
+
+
+
+                  “ Green Dreams Tote Bag by Leonid Afremov ”                    “Monet - Houses of Parliament at Sunset Mug”
+DvD
+
+
+
+
+               (a) Original   (b) Mitigated (c) Unchanged   (b) Others         (a) Original   (b) Mitigated (c) Unchanged   (b) Others
+
+Fig. 11: Ablation outcomes. Each panel shows, left to right, the unablated generation,
+Mitigated, Unchanged, and Others (degraded).
+
+
+
+
+           (a) Memorization (SD 1.4)                             (b) DvD (SD 1.4)                      (c) DvD (SD 2.1)
+Fig. 12: Layer-wise ratio of mitigated cases in single-head ablation. For each layer, we
+report the proportion of the prompts that can be mitigated by ablating any head in
+that layer. Mitigation effects concentrate primarily in layers 1–6.
+
+
+Single-Head Ablation. We first ablate individual heads by setting |H⋆ | = 1
+in Eq. (4). For each prompt p ∈ P (where P contains 300 DominanceBench
+prompts or 500 memorization prompts), we test all heads in every layer (1–16),
+i.e., all h ∈ {1, . . . , H} for every layer of the model.
+     We consider a prompt mitigated if ablating any head (in any layer) yields a
+Mitigated outcome. Under this criterion, single-head ablation mitigates 388 out
+of 500 memorization prompts on SD 1.4 (77.6%), but only 136/300 (45.3%) on
+SD 1.4 and 36/300 (12.0%) on SD 2.1 for DvD. As shown in Fig. 12, mitigation
+concentrates in layers 1–6, i.e., the UNet downsampling blocks, with limited
+effects in higher layers.
+
+
+
+Multi-Head Ablation. Next, we conduct multi-head ablation for |H⋆ | = 2 and
+3 in order to examine whether the DvD phenomenon is localized in a few heads
+or is distributed across a larger number of heads. We focus on the downsampling
+blocks, where single-head ablation shows high mitigation rates (Fig. 12). As enu-
+merating all head pairs/tripletsquickly becomes expensive (a layer with H heads
+has H2 possible pairs and H     3 possible triplets), we instead randomly sample
+10 head pairs (|H⋆ | = 2) and 10 head triplets (|H⋆ | = 3) per layer. For each
+prompt p and layer ℓ, we ablate the heads in each sampled set simultaneously
+following Eq. (4) and classify the resulting images as Mitigated, Unchanged, or
+Others. We compute the outcome proportions over the sampled sets and average
+them over prompts to obtain the layer-wise outcome proportions (which sum to
+one).
+14        H. Jeong, J.-S. Lee
+
+
+
+
+    (a) Memorization (SD 1.4)      (b) DvD (SD 1.4)             (c) DvD (SD 2.1)
+Fig. 13: Multi-head ablation outcome proportions across layers 1–6 as the ablation
+size increases (S=single, D=dual, T=triple).
+
+
+     Fig. 13 summarizes how outcome proportions change as we ablate more heads
+within the same layer. For memorization (SD 1.4), increasing the ablation size
+mainly shifts outcomes from Unchanged to Mitigated while keeping Others low,
+consistent with head-level localization. For DvD, however, mitigation improves
+little as we increase the ablation size. On SD 1.4, outcomes increasingly shift to
+Others rather than Mitigated, meaning that ablation of more heads mainly causes
+degraded outputs with little increase in Mitigated. On SD 2.1, most cases remain
+Unchanged even under dual/triple ablations. In sum, these patterns suggest that
+DvD is supported by contributions spread across many heads rather than by a
+small set of critical heads.
+
+
+5      Conclusion
+
+This work analyzed the DvD phenomenon in text-to-image diffusion models and
+introduced DominanceBench (300 prompts) for systematic study. Our controlled
+fine-tuning experiments showed that visual homogeneity in concept-specific train-
+ing images can increase dominance, suggesting that limited visual variation may
+induce overly rigid visual priors. Mechanistically, DvD arises from sharply peaked
+cross-attention in low-resolution blocks at the first denoising step and an early
+decrease of the dominated token’s conditioning influence. Head ablations further
+suggested that, unlike memorization, DvD is supported by the contributions of
+many attention heads; ablating more heads tends to degrade the outputs without
+reliably reducing dominance.
+    These results point to a practical data-curation lever: monitoring and re-
+ducing concept-level visual redundancy (near-duplicates or highly homogeneous
+images) during dataset curation, and encouraging diverse reference sets in cus-
+tomization. Finally, the proposed focus score provides a lightweight generation-
+time diagnostic at the first denoising step, enabling early detection and debug-
+ging (see Appendix S8 for additional results).
+
+
+References
+ 1. Agarwal, A., Karanam, S., Joseph, K., Saxena, A., Goswami, K., Srinivasan, B.V.:
+    A-star: Test-time attention segregation and retention for text-to-image synthesis.
+    In: ICCV. pp. 2283–2293 (2023)
+                                                      Dominant vs. Dominated          15
+
+ 2. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang,
+    S., Tang, J., et al.: Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923
+    (2025)
+ 3. Brooks, T., Holynski, A., Efros, A.A.: Instructpix2pix: Learning to follow image
+    editing instructions. In: CVPR. pp. 18392–18402 (2023)
+ 4. Cao, P., Zhou, F., Song, Q., Yang, L.: Controllable generation with text-to-image
+    diffusion models: A survey. IEEE TPAMI 48(4), 4771–4791 (2026)
+ 5. Carlini, N., Hayes, J., Nasr, M., Jagielski, M., Sehwag, V., Tramèr, F., Balle, B.,
+    Ippolito, D., Wallace, E.: Extracting training data from diffusion models. In: 32nd
+    USENIX Security Symposium. pp. 5253–5270 (2023)
+ 6. Chefer, H., Alaluf, Y., Vinker, Y., Wolf, L., Cohen-Or, D.: Attend-and-excite:
+    Attention-based semantic guidance for text-to-image diffusion models. ACM TOG
+    42(4), 148:1–148:10 (2023)
+ 7. Chen, C., Liu, D., Shah, M., Xu, C.: Exploring local memorization in diffusion
+    models via bright ending attention. In: ICLR (2025)
+ 8. Chen, J., Yu, J., Ge, C., Yao, L., Xie, E., Wu, Y., Wang, Z., Kwok, J., Luo, P.,
+    Lu, H., Li, Z.: Pixart-α: Fast training of diffusion transformer for photorealistic
+    text-to-image synthesis. In: International Conference on Learning Representations
+    (2024)
+ 9. Chen, Z., Wang, W., Cao, Y., Liu, Y., Gao, Z., Cui, E., Zhu, J., Ye, S., Tian,
+    H., Liu, Z., et al.: Expanding performance boundaries of open-source multimodal
+    models with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271
+    (2024)
+10. Couairon, G., Verbeek, J., Schwenk, H., Cord, M.: Diffedit: Diffusion-based seman-
+    tic image editing with mask guidance. In: The Eleventh International Conference
+    on Learning Representations (2023)
+11. Dat, D., Nam, H., Mao, P., Oh, T.: Vsc: Visual search compositional text-to-image
+    diffusion model. In: ICCV. pp. 19153–19162 (2025)
+12. Ding, G., Zhao, C., Wang, W., Yang, Z., Liu, Z., Chen, H., Shen, C.: Freecus-
+    tom: Tuning-free customized image generation for multi-concept composition. In:
+    CVPR. pp. 9089–9098 (2024)
+13. Du, Y., Durkan, C., Strudel, R., Tenenbaum, J.B., Dieleman, S., Fergus, R.,
+    Sohl-Dickstein, J., Doucet, A., Grathwohl, W.S.: Reduce, reuse, recycle: Composi-
+    tional generation with energy-based diffusion models and mcmc. In: Proceedings of
+    the 40th International Conference on Machine Learning. Proceedings of Machine
+    Learning Research, vol. 202, pp. 8489–8510. PMLR (2023)
+14. Dutta, D., Chen, J., Rajagopalan, R., Wei, Y.L., Choudhury, R.R.: Steer away from
+    mode collisions: Improving composition in diffusion models. In: The Fourteenth
+    International Conference on Learning Representations (2026)
+15. Esser, P., Kulal, S., Blattmann, A., Entezari, R., Müller, J., Saini, H., Levi, Y.,
+    Lorenz, D., Sauer, A., Boesel, F., Podell, D., Dockhorn, T., English, Z., Rombach,
+    R.: Scaling rectified flow transformers for high-resolution image synthesis. In: Pro-
+    ceedings of the 41st International Conference on Machine Learning. Proceedings
+    of Machine Learning Research, vol. 235, pp. 12606–12633. PMLR (2024)
+16. Hertz, A., Mokady, R., Tenenbaum, J., Aberman, K., Pritch, Y., Cohen-or, D.:
+    Prompt-to-prompt image editing with cross-attention control. In: ICLR (2023)
+17. Hintersdorf, D., Struppek, L., Kersting, K., Dziedzic, A., Boenisch, F.: Finding
+    nemo: Localizing neurons responsible for memorization in diffusion models. In:
+    Advances in Neural Information Processing Systems (2024)
+16      H. Jeong, J.-S. Lee
+
+18. Hua, H., Zeng, Z., Song, Y., Tang, Y., He, L., Aliaga, D., Xiong, W., Luo, J.:
+    Mmig-bench: Towards comprehensive and explainable evaluation of multi-modal
+    image generation models. arXiv preprint arXiv:2505.19415 (2025)
+19. Huang, K., Sun, K., Xie, E., Li, Z., Liu, X.: T2i-compbench: A comprehensive
+    benchmark for open-world compositional text-to-image generation. Advances in
+    Neural Information Processing Systems 36, 78723–78747 (2023)
+20. Jeon, D., Kim, D., No, A.: Understanding and mitigating memorization in gener-
+    ative models via sharpness of probability landscapes. In: Proceedings of the 42nd
+    International Conference on Machine Learning. Proceedings of Machine Learning
+    Research, vol. 267, pp. 27091–27112. PMLR (2025)
+21. Jeong, J., Han, S., Kim, J., Kim, S.: Latent space super-resolution for higher-
+    resolution image generation with diffusion models. In: CVPR. pp. 2355–2365 (2025)
+22. Jiang, J., Zhang, Y., Feng, K., Wu, X., Li, W., Pei, R., Li, F., Zuo, W.: Mc^2:
+    Multi-concept guidance for customized multi-concept generation. In: CVPR. pp.
+    2802–2812 (2025)
+23. Kasaei, S.A., Aghayari, A., Marioriyad, A., Sepasian, N., Fazli, M., Baghshah, M.S.,
+    Rohban, M.H.: Evaluating the evaluators: Metrics for compositional text-to-image
+    generation. arXiv preprint arXiv:2509.21227 (2025)
+24. Kim, J., Kim, S., Lee, J.S.: How diffusion models memorize. arXiv preprint
+    arXiv:2509.25705 (2025)
+25. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. In: Interna-
+    tional Conference on Learning Representations (2015)
+26. Kong, Z., Zhang, Y., Yang, T., Wang, T., Zhang, K., Wu, B., Chen, G., Liu,
+    W., Luo, W.: Omg: Occlusion-friendly personalized multi-concept generation in
+    diffusion models. In: European Conference on Computer Vision. pp. 253–270 (2024)
+27. Kumari, N., Zhang, B., Zhang, R., Shechtman, E., Zhu, J.Y.: Multi-concept cus-
+    tomization of text-to-image diffusion. In: CVPR. pp. 1931–1941 (2023)
+28. Li, J., Li, D., Savarese, S., Hoi, S.: Blip-2: Bootstrapping language-image pre-
+    training with frozen image encoders and large language models. In: International
+    Conference on Machine Learning. pp. 19730–19742. PMLR (2023)
+29. Liu, N., Li, S., Du, Y., Torralba, A., Tenenbaum, J.B.: Compositional visual gen-
+    eration with composable diffusion models. In: European Conference on Computer
+    Vision. pp. 423–439 (2022)
+30. Liu, Z., Zhang, Y., Shen, Y., Zheng, K., Zhu, K., Feng, R., Liu, Y., Zhao, D., Zhou,
+    J., Cao, Y.: Customizable image synthesis with multiple subjects. In: Advances in
+    Neural Information Processing Systems. vol. 36, pp. 57500–57519 (2023)
+31. Nichol, A., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., McGrew, B.,
+    Sutskever, I., Chen, M.: Glide: Towards photorealistic image generation and editing
+    with text-guided diffusion models. In: Proceedings of the 39th International Con-
+    ference on Machine Learning. Proceedings of Machine Learning Research, vol. 162,
+    pp. 16784–16804. PMLR (2022)
+32. OpenAI: Openai gpt-5 system card (2025), system card
+33. Oquab, M., Darcet, T., Moutakanni, T., Vo, H., Szafraniec, M., Khalidov, V.,
+    Fernandez, P., Haziza, D., Massa, F., El-Nouby, A., et al.: Dinov2: Learning robust
+    visual features without supervision. TMLR (2024)
+34. Patashnik, O., Gal, R., Ostashev, D., Tulyakov, S., Aberman, K., Cohen-Or, D.:
+    Nested attention: Semantic-aware attention values for concept personalization. In:
+    Proceedings of the Special Interest Group on Computer Graphics and Interactive
+    Techniques Conference Conference Papers. pp. 6:1–6:12 (2025)
+35. Pizzi, E., Roy, S.D., Ravindra, S.N., Goyal, P., Douze, M.: A self-supervised de-
+    scriptor for image copy detection. In: CVPR. pp. 14532–14542 (2022)
+                                                      Dominant vs. Dominated           17
+
+36. Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn, T., Müller, J., Penna,
+    J., Rombach, R.: Sdxl: Improving latent diffusion models for high-resolution image
+    synthesis. In: International Conference on Learning Representations (2024)
+37. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry,
+    G., Askell, A., Mishkin, P., Clark, J., Krueger, G., Sutskever, I.: Learning transfer-
+    able visual models from natural language supervision. In: Proceedings of the 38th
+    International Conference on Machine Learning. Proceedings of Machine Learning
+    Research, vol. 139, pp. 8748–8763. PMLR (2021)
+38. Ramesh, A., Pavlov, M., Goh, G., Gray, S., Voss, C., Radford, A., Chen, M.,
+    Sutskever, I.: Zero-shot text-to-image generation. In: ICML. pp. 8821–8831 (2021)
+39. Rassin, R., Hirsch, E., Glickman, D., Ravfogel, S., Goldberg, Y., Chechik, G.: Lin-
+    guistic binding in diffusion models: Enhancing attribute correspondence through
+    attention map alignment. Advances in Neural Information Processing Systems 36,
+    3536–3559 (2023)
+40. Ren, J., Li, Y., Zeng, S., Xu, H., Lyu, L., Xing, Y., Tang, J.: Unveiling and miti-
+    gating memorization in text-to-image diffusion models through cross attention. In:
+    European Conference on Computer Vision. pp. 340–356 (2024)
+41. Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution
+    image synthesis with latent diffusion models. In: CVPR. pp. 10684–10695 (2022)
+42. Ross, B., Kamkari, H., Wu, T., Hosseinzadeh, R., Liu, Z., Stein, G., Cresswell,
+    J., Loaiza-Ganem, G.: A geometric framework for understanding memorization
+    in generative models. In: International Conference on Learning Representations
+    (2025)
+43. Ruiz, N., Li, Y., Jampani, V., Pritch, Y., Rubinstein, M., Aberman, K.: Dream-
+    booth: Fine tuning text-to-image diffusion models for subject-driven generation.
+    In: CVPR. pp. 22500–22510 (2023)
+44. Said, M.N., Zaidi, A., Usman, R., Okon, S., Medepalli, P., Zhu, K., Sharma, V.,
+    O’Brien, S.: Deconstructing bias: A multifaceted framework for diagnosing cultural
+    and compositional inequities in text-to-image generative models. arXiv preprint
+    arXiv:2505.01430 (2025)
+45. Schuhmann, C., Beaumont, R., Vencu, R., Gordon, C., Wightman, R., Cherti,
+    M., Coombes, T., Katta, A., Mullis, C., Wortsman, M., et al.: Laion-5b: An open
+    large-scale dataset for training next generation image-text models. In: NeurIPS.
+    pp. 25278–25294 (2022)
+46. Somepalli, G., Singla, V., Goldblum, M., Geiping, J., Goldstein, T.: Diffusion art
+    or digital forgery? investigating data replication in diffusion models. In: CVPR.
+    pp. 6048–6058 (2023)
+47. Somepalli, G., Singla, V., Goldblum, M., Geiping, J., Goldstein, T.: Understanding
+    and mitigating copying in diffusion models. In: Advances in Neural Information
+    Processing Systems. vol. 36, pp. 47783–47803 (2023)
+48. Tang, Z., Yang, Z., Zhu, C., Zeng, M., Bansal, M.: Any-to-any generation via com-
+    posable diffusion. In: Advances in Neural Information Processing Systems. vol. 36,
+    pp. 16083–16099 (2023)
+49. Wan, Y., Chang, K.W.: Compalign: Improving compositional text-to-image gen-
+    eration with a complex benchmark and fine-grained feedback. arXiv preprint
+    arXiv:2505.11178 (2025)
+50. Wang, R., Chen, Z., Chen, C., Ma, J., Lu, H., Lin, X.: Compositional text-to-image
+    synthesis with attention map control of diffusion models. In: Proceedings of the
+    AAAI Conference on Artificial Intelligence. vol. 38, pp. 5544–5552 (2024)
+18      H. Jeong, J.-S. Lee
+
+51. Wen, S., Fang, G., Zhang, R., Gao, P., Dong, H., Metaxas, D.: Improving composi-
+    tional text-to-image generation with large vision-language models. arXiv preprint
+    arXiv:2310.06311 (2023)
+52. Wen, Y., Zhang, X., Li, Y., Wang, Y., Chen, Z., Chen, Y., Zhang, X., Wang,
+    H.: Detecting, explaining, and mitigating memorization in diffusion models. In:
+    International Conference on Learning Representations (2024)
+53. Yang, P., Cheung, N.M., Ma, X.: Text to image generation and editing: A survey.
+    arXiv preprint arXiv:2505.02527 (2025)
+54. Zhang, C., Zhang, C., Zhang, M., Kweon, I.S.: Text-to-image diffusion models in
+    generative ai: A survey. arXiv preprint arXiv:2303.07909 (2023)
+55. Zhang, L., Rao, A., Agrawala, M.: Adding conditional control to text-to-image
+    diffusion models. In: ICCV. pp. 3836–3847 (2023)
+56. Zhang, R., Isola, P., Efros, A.A., Shechtman, E., Wang, O.: The unreasonable
+    effectiveness of deep features as a perceptual metric. In: CVPR. pp. 586–595 (2018)
+57. Zhu, Y., Xie, J., Wu, Y., Gao, R.: Learning energy-based models by cooperative
+    diffusion recovery likelihood. In: International Conference on Learning Represen-
+    tations (2024)
+                                                                            Dominant vs. Dominated                        19
+
+           Dominant vs. Dominated: Concept-Level
+           Generative Collapse in Diffusion Models
+
+                                        Supplementary Material
+
+
+                                           Table of Contents
+
+
+S1. DominanceBench . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+
+     S1.1. Training-Image Visual Homogeneity Analysis . . . . . . . . . . . . . . . . . . . . . 21
+
+     S1.2. Prompt Collection and Evaluation Details . . . . . . . . . . . . . . . . . . . . . . . . .21
+
+     S1.3. Independent Prompt Set . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+
+     S1.4. Threshold Robustness . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+
+S2. Reference Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+
+     S2.1. Balanced Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+
+     S2.2. Memorized Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+
+S3. Visual Homogeneity Experiments: Details and Extensions . . . . . 25
+
+     S3.1. Prompt Examples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+
+     S3.2. Additional Concept Types . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+
+     S3.3. Additional VLM Evaluator . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .26
+
+     S3.4. Statistical Support for Diversity Trends . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+
+     S3.5. Effect of Class-Word Priors . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+
+S4. Dominant-Token Detection in Other Layers . . . . . . . . . . . . . . . . . . . . . 28
+
+S5. Metric Design for Temporal Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . .28
+
+S6. Preliminary Attention Intervention . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+
+S7. Multi-Head Ablation: Across Early Timesteps . . . . . . . . . . . . . . . . . . 30
+
+     S7.1. Early-Timestep Ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+20         H. Jeong, J.-S. Lee
+
+     S7.2. Head-Ablation Robustness . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+
+S8. DvD Phenomenon Detection . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+
+     S8.1. Detection Methodology . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+
+     S8.2. Selected Detection Configuration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+
+     S8.3. Validation of Detection Accuracy . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+
+     S8.4. Limitations and Future Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+                                                         Dominant vs. Dominated             21
+
+S1       DominanceBench
+S1.1     Training-Image Visual Homogeneity Analysis
+DominanceBench (Sec. 3.3) categorizes artists, landmarks, and characters as
+high-homogeneity concepts and common objects as low-homogeneity concepts
+based on the training-image visual homogeneity hypothesis. Here, we provide
+empirical support for this categorization by analyzing the relative visual homo-
+geneity of LAION training images for each concept in Table S1.
+          Table S1: Concept sets used to collect DominanceBench prompts.
+Category Terms
+Artist    Amedeo Modigliani, Andy Warhol, Camille Pissarro, Caravaggio, Claude Monet, Edgar
+          Degas, Edvard Munch, Egon Schiele, Frida Kahlo, Gustav Klimt, Hokusai, Kandinsky,
+          Leonardo da Vinci, Leonid Afremov, Monet, Pierre-Auguste Renoir, Raphael, Rem-
+          brandt, Titian, Van Gogh, Vermeer
+Character Barbie, Batman, Black Panther, Buzz Lightyear, Captain America, Cinderella, Goku,
+          Hello Kitty, Hulk, Iron Man, Joker, Luffy, Mickey Mouse, Minions, Naruto, Pikachu,
+          Rapunzel, Simpson, Spider-Man, Superman, Thor, Wonder Woman, Woody
+Landmark Acropolis, Big Ben, Brandenburg Gate, Colosseum, Eiffel Tower, Empire State Building,
+         Golden Gate Bridge, Grand Canyon, Great Wall of China, Hagia Sophia, Kremlin, Machu
+         Picchu, Neuschwanstein Castle, Parthenon, Petra, Pyramid, Space Needle, Taj Mahal,
+         Times Square, Tower Bridge
+Object    Apron, Bag, Battery Charger, Bottle, Canvas Bag, Carry-All Pouch, Clock, Coaster,
+          Coffee Mug, Cup, Curtain, Halloween, Headphones, Hoodie, Lamp, Magnet, Magnets,
+          Mouse Pad, Mousepad, Mug, Necklace, Notebook, Placemat, Pouch, Rug, Sleeves, Spiral
+          Notebook, Sweatshirt, T-Shirt, Tattoo, Tie, Tote Bag, Umbrella, Wallet
+
+
+    For each concept, we keep the top 1,000 most frequent LAION captions con-
+taining the keyword and download the corresponding images. We then compute
+CLIP ViT-L/14 image embeddings and measure intra-category cosine distances
+to assess relative visual homogeneity.
+    Fig. S1 shows the cosine distance distribution for each category. We report
+medians to reduce the influence of near-duplicate samples. Landmark images
+exhibit the lowest median distance (0.3079), indicating the highest visual homo-
+geneity. Character images follow (median 0.4417), while artist images (median
+0.4660) and object images (median 0.4672) display substantially higher intra-
+category distances, indicating lower visual homogeneity.
+    Overall, this analysis provides evidence of a relative ordering in training-
+image visual homogeneity, with landmark images showing the highest homo-
+geneity and object images the lowest.
+
+S1.2     Prompt Collection and Evaluation Details
+DominanceBench prompts rely on four concept sets: A (artist), C (character), L
+(landmark), and O (object). Table S1 enumerates their elements, and we denote
+their union by V = A ∪ C ∪ L ∪ O. We use these sets to retrieve candidate
+prompts from LAION and filter them using the DvD-Score-based procedure in
+Algorithm 1.
+    To compute DvD Scores, we use category-specific questions for each concept
+type. The five questions per category are listed in Table S2.
+22      H. Jeong, J.-S. Lee
+
+
+
+
+                              (a) Landmark (median: 0.3079)
+
+
+
+
+                              (b) Character (median: 0.4417)
+
+
+
+
+                                (c) Artist (median: 0.4660)
+
+
+
+
+                               (d) Object (median: 0.4672)
+
+Fig. S1: Intra-category cosine distance distributions for LAION training images. For
+each concept in Table S1, we collect the training images associated with the 1,000
+most frequent LAION captions containing the keyword and compute cosine distances
+in CLIP space. Lower distances indicate higher visual homogeneity.
+
+
+S1.3   Independent Prompt Set
+To check whether the DvD behavior in DominanceBench is specific to SD 1.4-
+based prompt filtering, we construct a 300-prompt independent set from the
+same concept/object vocabulary in Table S1, without applying the DvD-Score-
+based filtering criterion in Algorithm 1. The independent prompt set will be
+released upon publication.
+    For each prompt, we generate 10 images with different random seeds and
+compute the per-prompt mean DvD Score. The fraction of prompts with mean
+DvD Score at least 36 remains high in this independent set: 92.67% for SD 1.4
+and 50.67% for SD 2.1, compared with 100.00% and 70.00% on DominanceBench,
+respectively. This result suggests that the phenomenon is not solely an artifact
+of SD 1.4-based benchmark construction.
+
+S1.4   Threshold Robustness
+In Sec. 3.3, we set the DvD threshold to 36 using the upper quartile of the
+balanced-prompt score distribution. To check whether DominanceBench is sen-
+sitive to this threshold choice, we vary the threshold while keeping the same
+                                                            Dominant vs. Dominated               23
+
+     Table S2: Questions used in collecting DominanceBench for each category.
+Category Questions
+          – Is this image painted in the artistic style of Artist, using realistic lighting and smooth
+            brush strokes?
+Artist    – Does the person or subject look painted with the realistic portrait technique typical of
+            Artist?
+          – Does this image show brushwork, color tones, or shading similar to paintings by Artist?
+          – Does this look like a painting created by Artist, rather than a photo or modern artwork?
+          – Is the visual composition, lighting, and realism clearly similar to Artist’s paintings?
+         –    Does the image show architectural details or a skyline resembling the Landmark?
+         –    Is the Landmark the main subject or part of the background in this image?
+Landmark
+         –    Is the Landmark or part of it visible anywhere in the image?
+         –    Is this a photograph or realistic depiction of the Landmark?
+         –    Is the structure clearly identifiable as the Landmark?
+          –   Does the image contain a logo, costume, or any reference to Character?
+          –   Is the scene related to, inspired by, or set in the world of Character?
+Character
+          –   Is there a visual element or theme in the image connected to Character?
+          –   Does the person or figure look like Character?
+          –   Is Character visible in the image?
+          –   Does this image look like a product photo or include a depiction of a Object?
+          –   Is there a Object included or partly shown in the image?
+Object
+          –   Is the appearance or shape recognizable as a Object?
+          –   Does the image feature or focus on a Object?
+          –   Is a Object visible in the image?
+
+
+
+
+10-seed evaluation protocol. All 300 DominanceBench prompts would be re-
+tained when the threshold varies from 32 to 40; stricter thresholds of 48 and
+60 retain 294 and 266 prompts, respectively. This indicates that the benchmark
+construction is not sensitive to the exact threshold value of 36.
+
+
+S2       Reference Prompts
+
+S2.1     Balanced Prompts
+
+In Sec. 3.3 and Sec. 4.2, we use balanced prompts to distinguish DvD behavior
+from successful multi-concept generation.
+    We leverage the non-memorized benchmark of Ren et al. [40], a reference set
+used in their memorization comparison, which contains 500 prompts describing
+common subjects and objects. For each prompt, we ask GPT-5 [32] to identify
+the major subjects or objects that should be visually represented in the gener-
+ated image. We retain only prompts for which it identifies exactly two concepts,
+yielding 300 prompts. This filtered subset matches the two-concept structure of
+DominanceBench.
+    Because the balanced prompt set contains diverse common concepts, we eval-
+uate it using the generic questions in Table S3 about whether each concept is
+present, rather than the category-specific templates in Table S2. We therefore
+24       H. Jeong, J.-S. Lee
+
+       Table S3: Questions used in calculating DvD Score for balanced prompts.
+          Category    Questions
+                      – Does the image include Concept as part of the scene?
+                      – Does the image show Concept in a recognizable way?
+          Concept
+                      – Is Concept visually represented in the image?
+                      – Can you see Concept clearly in the image?
+                      – Is Concept present in the image?
+
+
+
+
+Fig. S2: L2 norm distributions of text-conditional noise predictions at the first denois-
+ing step across memorized, DominanceBench, and balanced prompts.
+
+
+
+use its DvD Score distribution primarily as a reference distribution for thresh-
+old calibration, as shown in Fig. 3, rather than as a strictly matched absolute
+benchmark against DominanceBench.
+
+
+
+S2.2     Memorized Prompts
+
+
+In Sec. 4.3, we compare DvD with memorization using 500 memorized prompts
+identified by Carlini et al. [5]. Among existing studies on memorization, Wen
+et al. [52] proposed a detection method that computes the L2 norm of text-
+conditional noise predictions at the first denoising step. A higher L2 norm value
+indicates that the prompt consistently reproduces the same image regardless of
+the random seed. To further characterize DominanceBench, we apply this met-
+ric to three prompt sets: memorized prompts, DominanceBench, and balanced
+prompts.
+    Fig. S2 shows the L2 norm distributions for these three prompt sets. Mem-
+orized prompts show the highest values, DominanceBench shows intermediate
+values, and balanced prompts show the lowest. This intermediate position sug-
+gests that DominanceBench shares some generation-time characteristics with
+memorization.
+                                                  Dominant vs. Dominated        25
+
+Table S4: Representative prompt examples used in the visual homogeneity experi-
+ments.
+
+Class      Mode Partner Concept Prompt
+castle   normal fountain            A sks castle with a fountain nearby
+         flipped fountain           A fountain next to a sks castle
+mountain normal flag                A sks mountain with a flag nearby
+         flipped flag               A flag next to a sks mountain
+arena    normal statue              A sks arena with a statue nearby
+         flipped statue             A statue next to a sks arena
+minions normal street lamp          A sks minions with a street lamp nearby
+         flipped street lamp        A street lamp next to a sks minions
+van gogh normal bench               A bench in the style of sks van gogh
+         flipped bench              In the style of sks van gogh, a bench
+
+
+
+S3       Visual Homogeneity Experiments: Details and
+         Extensions
+
+S3.1     Prompt Examples
+
+In Sec. 4.1, we evaluate the learned concept (e.g., “sks castle”) together with a
+partner concept in two-concept prompts. We include both a normal order and
+a flipped order for each concept pair, and compute DvD Scores over 10 random
+seeds. Table S4 lists representative prompt examples used for evaluation.
+
+
+S3.2     Additional Concept Types
+
+To examine whether the trend observed in Sec. 4.1 extends beyond the landmark-
+based concepts, we repeat the same controlled homogeneity experiment on two
+additional concept types: the character concept Minions and the artist-style
+concept Van Gogh.
+    Following Sec. 4.1, for each concept we construct five 120-image training sets,
+Dk (k = 1, . . . , 5), where smaller k denotes a more visually homogeneous set. For
+each Dk , we fine-tune only the UNet of SD 1.4 and SD 2.1 while keeping the text
+encoder fixed. We also use the same prompt construction, normal/flipped con-
+cept orders, and DvD Score computation as in Sec. 4.1. For Minions, we evaluate
+whether the generated image contains both the learned character and the part-
+ner concept. For Van Gogh, we evaluate whether the generated image preserves
+the learned style together with the partner concept. Figure S3 shows the distri-
+butions of per-prompt mean DvD Scores across homogeneity configurations for
+the two additional concepts. For both SD 1.4 and SD 2.1, the score distributions
+for Minions and Van Gogh shift toward higher values as training-image visual
+homogeneity increases. This trend is most pronounced in the most homogeneous
+setting (D1 ), where the learned concept more frequently dominates the partner
+concept. In contrast, less homogeneous settings yield more balanced generations.
+26      H. Jeong, J.-S. Lee
+
+
+
+
+               (a) Minions                              (b) Van Gogh
+Fig. S3: Effect of training-image visual homogeneity on dominance for two additional
+concept types: the character concept Minions and the artist-style concept Van Gogh.
+For both SD 1.4 and SD 2.1, we show the distributions of per-prompt mean DvD
+Scores across homogeneity configurations. Higher scores in more homogeneous settings
+indicate stronger dominance.
+
+
+   These results suggest that the relationship between visual homogeneity and
+dominance is not limited to the landmark-based concepts used in the main paper,
+but also extends to character and artist-style concepts.
+
+S3.3   Additional VLM Evaluator
+To test whether the conclusion in Sec. 4.1 depends on the choice of VLM evalua-
+tor, we recompute DvD Scores using InternVL2.5-8B [9] in place of Qwen2.5-VL,
+while leaving the generated images, prompts, homogeneity configurations, and
+concept-presence questions unchanged. This experiment tests the robustness of
+the observed relationship between training-image visual homogeneity and dom-
+inance to the choice of VLM evaluator.
+Experimental Setup. We reuse the generated images from the homogeneity-
+controlled training sets Dk (k = 1, . . . , 5) for the three learned concepts: castle,
+mountain, and arena. For each image, we use InternVL2.5-8B to reassess the
+visual presence of the two concepts and compute the DvD Score using the same
+procedure as in Sec. 4.1. As in Sec. 4.1, we average the scores over 10 random
+seeds and report the distributions of per-prompt mean DvD Scores separately
+for SD 1.4 and SD 2.1.
+Results. Figure S4 shows that the InternVL2.5-8B-based scores follow the same
+qualitative trend as Fig. 5. For both SD 1.4 and SD 2.1, the DvD Score distri-
+butions tend to shift toward higher values as training-image visual homogeneity
+increases (smaller k in Dk ). Overall, this evaluation supports the same conclusion
+that greater visual homogeneity is associated with stronger dominance.
+    While these extended evaluations support the qualitative relationship be-
+tween training-image visual homogeneity and dominance, two possible confounds
+remain. We therefore provide additional checks on whether the diversity-dependent
+                                                    Dominant vs. Dominated       27
+
+
+
+
+         (a) Castle                  (b) Mountain                 (c) Arena
+Fig. S4: DvD Score distributions recomputed with InternVL2.5-8B as the VLM eval-
+uator for the three learned concepts.
+
+Table S5: Statistical test results for the visual-homogeneity experiments. Each cell
+reports the DvD Score drop from D1 to D5 / one-sided Spearman permutation-test
+p-value.
+
+                 Model      Castle       Mountain        Arena
+                 SD 1.4 17.48 / 0.0005 29.93 / 0.0005 14.02 / 0.0005
+                 SD 2.1 19.23 / 0.0005 7.29 / 0.0005 0.78 / 0.1599
+
+
+
+trend is statistically reliable and whether it can be explained by pretrained class-
+word priors rather than the diversity manipulation itself.
+
+
+S3.4   Statistical Support for Diversity Trends
+
+To move beyond visual inspection of Fig. 5, we quantify the diversity-dependent
+trends using bootstrap 95% confidence intervals and one-sided Spearman permu-
+tation tests across homogeneity configurations. Table S5 reports the DvD Score
+drop from the most homogeneous setting D1 to the most diverse setting D5 ,
+together with the one-sided Spearman p-value.
+    The trend is significant in 5 of the 6 concept/model panels. The only excep-
+tion is Arena under SD 2.1, where the DvD Score range is small.
+
+
+S3.5   Effect of Class-Word Priors
+
+A second possible confound is that the learned concepts are expressed using
+class words such as “castle,” “mountain,” and “arena,” which may already carry
+pretrained visual priors in the base model. We therefore check whether these pre-
+trained class-word priors alone explain the diversity-dependent trend in Sec. 4.1.
+Using the same prompts with base SD models before fine-tuning, only 0–18% of
+prompts exceed the DvD threshold, depending on the class and model. Moreover,
+all homogeneity configurations for a given learned concept share the same class
+word. Thus, class-word priors may affect the absolute score level, but they do
+not by themselves explain the diversity-dependent trend observed across D1 –D5 .
+28      H. Jeong, J.-S. Lee
+
+Table S6: Layer-wise detection rate of dominant tokens in SD 2.1 across 300 prompts.
+“Included” denotes the number of prompts in which the dominant concept token is
+identified as the maximally attended token in the corresponding layer.
+
+ Layer Setting     5      6      7      8      9      10     5–6    8–10    5–10
+ Included          103    71     30     103    137    216    78     162    98
+ Percent         34.33% 23.67% 10.00% 34.33% 45.67% 72.00% 26.00% 54.00% 32.67%
+
+
+
+S4     Dominant-Token Detection in Other Layers
+
+In Sec. 4.2, we analyze dominant-token signals in SD 2.1 using layers 8–10. This
+choice follows the layer-wise trend observed in Fig. 7, which shows that the gap
+in focus scores between DominanceBench and balanced prompts peaks around
+layers 8–10 in both SD 1.4 and SD 2.1.
+    However, when viewed in isolation, Fig. 7b may give a different impression:
+the apparent gap between the balanced and DvD cases appears larger in layers
+5–7 than in layers 8–10. To better understand where dominant-token signals are
+most consistently captured, we conduct an additional layer-wise analysis.
+    For each layer (and layer group), we measure how frequently dominant tokens
+are detected across 300 prompts. Tab. S6 summarizes the results. When analyzed
+individually, layer 10 yields the highest detection rate (72.0%), indicating that
+dominant-token signals are most clearly detected at this layer. Because layers 5
+and 6 correspond to the last downblocks, we additionally report their grouped
+detection rate. When grouping layers, the average detection rate of layers 8–10
+(54.0%) is substantially higher than that of layers 5–6 (26.00%).
+    Overall, while the last downblocks (layers 5–6) may show larger differences
+between the balanced and DvD cases in Fig. 7b, dominant-token signals are
+more consistently detected when using layers 8–10. For this reason, the SD 2.1
+analysis in Sec. 4.2 focuses on layers 8–10.
+
+
+S5     Metric Design for Temporal Analysis
+
+While the focus score (Eq. 2) uses entropy normalization, our temporal analysis
+(Sec. 4.2) uses only attention deviation without entropy. We explain why below.
+
+
+S5.1   Different Objectives Require Different Metrics
+
+The focus score compares attention patterns across different prompts with vary-
+ing characteristics. The numerator measures attention concentration on the peak
+token relative to others, while the denominator uses entropy to capture the over-
+all dispersion of the attention distribution. Normalizing entropy by log2 N ac-
+counts for prompt length, enabling fair comparison across prompts with different
+token counts.
+                                                                                                                                                                                                                                                                                   Dominant vs. Dominated   29
+
+Table S7: Attention weights at consecutive timesteps. The attention of CD and Cd
+remains constant while that of an irrelevant token T1 suddenly increases.
+                Token                                                                        Timestep t Timestep t + 1                                                                                                                                                                   Change
+                CD (Dominant)         0.40                                                                                                                                                                                                                   0.40                           0
+                Cd (Dominated)        0.30                                                                                                                                                                                                                   0.30                           0
+                T1 (Another token)    0.05                                                                                                                                                                                                                   0.15                        +0.10
+                Other 7 tokens     0.036 each                                                                                                                                                                                                             0.021 each                   −0.015 each
+
+
+
+
+    In contrast, Temporal Analysis tracks attention dynamics within a single
+                                            (ℓ,t)    (ℓ,t)     (ℓ,t)
+prompt over time. The attention deviation αi      = ai     − āothers already cap-
+                                                                (ℓ,t)
+tures relative token importance, and its temporal change ∆αi          directly mea-
+sures how the competitive balance shifts between concepts. We do not use en-
+tropy normalization because it causes distortion from irrelevant tokens, as ex-
+plained below.
+
+
+
+S5.2   Entropy Causes Noise in Temporal Analysis
+
+
+Entropy H measures the dispersion of the entire attention distribution, includ-
+ing tokens irrelevant to the dominant and dominated concepts (denoted as CD
+and Cd , respectively). When irrelevant tokens shift attention, entropy changes
+even if the attention to CD and Cd remains unchanged, leading to distorted
+interpretations of concept-level dynamics.
+P As a concrete example, consider 10 tokens (CD , Cd , and 8 other tokens) with
+   ai = 1.0 (Table S7):
+Using attention deviation (our approach):
+
+
+                              \bar {a}_{others}^{(t)} = \frac {1-0.40}{9} \approx 0.067 \\ \bar {a}_{others}^{(t+1)} = \frac {1-0.40}{9} \approx 0.067 \\ \alpha _{C_D}^{(t)} = 0.40 - 0.067 = 0.333 \\ \alpha _{C_D}^{(t+1)} = 0.40 - 0.067 = 0.333 \\ \Delta \alpha _{C_D} = 0
+
+
+
+
+                                                                                                                                                                                                                                                                                                            (9)
+
+
+    Correct interpretation: CD ’s relative advantage is unchanged.
+If entropy normalization is used hypothetically:
+    At timestep t, attention is concentrated primarily on CD (0.40) and Cd (0.30),
+with other tokens having small weights (e.g., 0.05, 0.036 each), yielding low Ht .
+At timestep t + 1, the attention of T1 increases to 0.15, while those of CD (0.40)
+and Cd (0.30) remain constant, yielding higher Ht+1 .
+30      H. Jeong, J.-S. Lee
+
+     An entropy-normalized metric would give:
+
+                          \text {Score}_t = \frac {\alpha _{C_D}^{(t)}}{H_t / \log _2 N} \quad \text {(high value)} \\ \text {Score}_{t+1} = \frac {\alpha _{C_D}^{(t+1)}}{H_{t+1} / \log _2 N} \quad \text {(lower value)} \\ \Delta \text {Score} < 0
+
+
+
+
+                                                                                                                                                                                                                                                          (12)
+   Distorted interpretation: “CD ’s dominance decreased”—despite aCD remain-
+ing constant at 0.40. This distortion occurs because the entropy increase stems
+from irrelevant token T1 (0.05 → 0.15), not from changes in the dominant (CD )
+or dominated (Cd ) concepts that Temporal Analysis aims to isolate.
+
+S5.3    Additional Layer-Wise Consideration
+Beyond the token-level noise discussed above, incorporating entropy would cre-
+ate an additional issue for cross-layer tracking. As described in Sec. 4.2, we track
+dominant concept tokens in layers 8–10 and dominated tokens in layer 7. Since
+each layer has its own entropy value, any metric involving entropy cannot be
+                                                          (l,t)   (l,t)   (l,t)
+directly compared across layers. Attention deviation αi = ai − āothers iso-
+lates relative token importance within each layer, enabling consistent cross-layer
+comparison.
+Summary. By using only attention deviation, our Temporal Analysis (1) main-
+tains direct interpretability (∆α = change in relative advantage), (2) eliminates
+noise from irrelevant tokens, and (3) enables consistent cross-layer tracking of
+the dominant and dominated concepts that characterize the DvD phenomenon.
+
+S6     Preliminary Attention Intervention
+Motivated by the early-step attention imbalance observed in Sec. 4.2, we con-
+duct a small perturbation study to probe its functional connection to DvD out-
+comes. Specifically, we rescale the cross-attention weights of selected dominant
+and dominated concept tokens during early denoising steps.
+    Across 300 DominanceBench prompts and 3 seeds on SD 1.4, the mean DvD
+Score decreases from 80.08 to 77.29 when boosting dominated-token attention, to
+78.73 when suppressing dominant-token attention, and to 74.76 when applying
+both changes. These partial reductions provide preliminary evidence that early
+attention imbalance is functionally related to DvD outcomes.
+
+S7     Multi-Head Ablation: Across Early Timesteps
+S7.1    Early-Timestep Ablation
+In Sec. 4.3, we ablate specific heads throughout the full denoising process to
+examine whether each phenomenon is localized to a small set of heads or dis-
+tributed across many heads. However, Sec. 4.2 shows that the attention imbal-
+ance underlying DvD is already established within the first few denoising steps.
+                                                    Dominant vs. Dominated       31
+
+
+
+
+ (a) Memorization (SD 1.4)       (b) DvD (SD 1.4)             (c) DvD (SD 2.1)
+Fig. S5: Multi-head ablation outcome proportions across layers 1–6 under early-
+timestep ablation (timesteps 50 to 40).
+
+
+Here, we check whether the same head-level pattern remains when the analysis
+is restricted to the early denoising steps only.
+    We repeat the multi-head ablation protocol in Sec. 4.3 over early timesteps.
+The only change is that ablation is applied from timesteps 50 to 40. As in Sec. 4.3,
+we evaluate single-, dual-, and triple-head ablations in layers 1–6 and classify the
+resulting outputs as Mitigated, Unchanged, or Others.
+    Fig. S5 shows that the qualitative contrast between memorization and DvD
+remains similar in this early-timestep setting. For memorization, increasing the
+ablation size mainly shifts outcomes from Unchanged to Mitigated, which is
+consistent with a more localized head-level mechanism. In contrast, for DvD on
+SD 1.4, increasing the ablation size yields only a marginal increase in Mitigated ;
+the more noticeable change is a shift from Unchanged to Others. DvD on SD 2.1
+shows the same overall tendency: Unchanged remains dominant across most
+layers and ablation sizes, while Mitigated cases remain rare.
+    Overall, these results are consistent with the view that, even in the early
+denoising steps, DvD is supported by distributed contributions across heads
+rather than by a small set of critical heads.
+
+S7.2   Head-Ablation Robustness
+We additionally check whether the head-ablation results in Sec. 4.3 are sensitive
+to the ablation strength or to the thresholds used for outcome classification. For
+ablation strength, we use 20 SD 1.4 DominanceBench cases from the effective
+single-head ablation layers (layers 3 and 4) and sweep ε from 10−5 to 10−1 . The
+mitigated ratio remains stable across this range (28.1–28.8%).
+    We also reclassify the existing head-ablation outputs over a threshold grid
+using LPIPS thresholds 0.5/0.6/0.7, SSCD thresholds 0.4/0.5/0.6, and Qwen
+concept-presence thresholds 3/4. Across these 90 settings, the layer with the
+strongest effect remains within early layers 1–6 in 78 settings. This suggests that
+the layer-level trend is not tied to a single ablation strength or classification-
+threshold choice.
+
+S8     DvD Phenomenon Detection
+This section explores whether our analysis results can be used for DvD detection
+during generation. In particular, we show that the focus score can serve as an
+32         H. Jeong, J.-S. Lee
+
+Table S8: Detection rates (% of prompts identified as DvD) across focus score thresh-
+olds and layer configurations in layers 8–10 (DominanceBench: NDvD = 300; balanced:
+Nbalanced = 300).
+
+                     (a) SD 1.4                                             (b) SD 2.1
+
+thr     max_mean    L8    L9   L10   8&9   8&10   9&10   thr   max_mean    L8    L9   L10   8&9   8&10   9&10
+
+                  DominanceBench (%)                                     DominanceBench (%)
+
+0.004     88.33    71.00 71.33 72.67 74.00 75.00 79.33 0.002     92.33    79.00 68.33 55.00 77.67 70.67 67.00
+0.005     82.67    56.67 61.33 67.00 63.00 70.00 71.33 0.003     65.67    33.33 46.33 37.33 41.67 37.00 46.00
+0.006     78.33    50.33 49.33 59.67 50.67 60.00 65.33 0.004     45.00    15.33 32.67 26.00 24.33 21.33 28.00
+
+                     Balanced (%)                                           Balanced (%)
+
+0.004     70.33    60.00 48.33 29.67 57.00 50.67 42.33 0.002     99.00    98.67 36.67 36.33 90.67 88.00 35.00
+0.005     60.33    48.67 40.00 21.33 46.67 34.67 31.67 0.003     80.33    70.33 15.33 21.67 34.00 32.67 19.33
+0.006     49.33    38.00 32.00 15.00 35.67 23.67 25.00 0.004     43.00    30.33 8.67 13.33 9.00 8.67     9.33
+
+
+
+
+early-step diagnostic for detection. While the main contribution of this paper is
+identifying the causes and mechanisms of the DvD phenomenon, from a practical
+perspective, early detection of DvD during generation can serve as a foundation
+for future mitigation research.
+
+S8.1       Detection Methodology
+We use the focus score (Eq. 2) to detect DvD. When the focus score exceeds a
+specific threshold, we determine that the prompt is likely to trigger DvD. Specif-
+ically, we compute the focus score in low-resolution layers at the first denoising
+step (t = 50), and treat the token receiving maximum attention as the detected
+dominant concept token.
+
+S8.2       Selected Detection Configuration
+Based on Sec. 4.2 (Fig. 7) showing that DominanceBench prompts exhibit par-
+ticularly high focus scores in layers 8–10, we consider these low-resolution layers
+and tune the detection threshold. For SD 1.4 and SD 2.1, we sweep the thresh-
+old from 0.002 to 0.006 (step 0.001) and measure detection rates (% of prompts
+identified as DvD) on DominanceBench (NDvD = 300) and balanced prompts
+(Nbalanced = 300).
+    Table S8 reports detection rates under several layer configurations in layers
+8–10. Using layers 9 and 10 yields the best detection performance, measured by
+the maximal difference between correct detection for DominanceBench prompts
+and false detection for balanced prompts (40.33%p with threshold 0.006 for SD
+1.4 and 32.00%p with threshold 0.002 for SD 2.1).
+
+S8.3       Validation of Detection Accuracy
+To verify whether our detection method accurately identifies dominant concept
+tokens, we observe changes in DvD Score after modifying the detected tokens.
+Specifically, we apply the chosen thresholds (SD 1.4: 0.006; SD 2.1: 0.002) to
+                                                   Dominant vs. Dominated        33
+
+
+
+
+                                                           (SD1.4)
+
+                                                           (SD2.1)
+
+
+
+
+Fig. S6: DvD Score distribution before (darker boxes) and after (lighter boxes) re-
+placing detected tokens with generic category names. Results are shown for Domi-
+nanceBench prompts on SD 1.4 (orange) and SD 2.1 (blue), with balanced prompts
+(green) for reference. The observed score reduction suggests that the detected token
+actually contributes to dominance. (Red dashed line: DvD threshold of 36.)
+
+
+
+DominanceBench prompts, identify the token receiving maximum attention in
+layers 9&10, and modify it.
+    Based on the training-image visual homogeneity hypothesis revealed in Sec. 4.1,
+we replace detected dominant tokens with generic category names such as:
+– Artist: Van Gogh → “artist”
+– Landmark: Colosseum → “landmark”
+– Character: Spider-Man → “character”
+If detection is accurate, this modification should reduce the DvD Score by re-
+placing specific, high-homogeneity concepts with generic, low-homogeneity terms
+that allow more flexible representations.
+    Fig. S6 shows that replacing the detected dominant token substantially re-
+duces DvD Scores on both SD 1.4 and SD 2.1, supporting accurate detection.
+
+S8.4   Limitations and Future Work
+
+The purpose of this section was to validate the accuracy of the detection method,
+and we clarify that prompt modification itself may not be a practical solution.
+When a user requests “Van Gogh coaster,” generating “artist coaster” undermines
+the original intent. Future research should explore architectural modifications
+or training-level methods that alleviate DvD without modifying prompts. The
+detection method presented in this section can be used as a diagnostic tool for
+developing such mitigation methods.
+

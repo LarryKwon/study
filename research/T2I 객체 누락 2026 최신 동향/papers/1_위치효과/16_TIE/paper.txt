@@ -1,0 +1,697 @@
+                                                     TIE: Training-free CLIP Embedding Guidance for Compositional
+                                                                         Text-to-Image Alignment
+
+                                                  Sujung Hong* Tae Eun Choi∗                   Youngjun Jun                     Chanyong Yoon                      Seong Jae Hwang†
+                                                                                                Yonsei University
+                                                        {sujung0914, teunchoi, youngjun, charlie2019370, seongjae}@yonsei.ac.kr
+arXiv:2610.32407v1 [cs.CV] 23 Oct 2026
+
+
+
+
+                                                                                                                                        Concept Loss                           Concept Confusion
+                                                                     Abstract                                                (a) Missing Attribute (b) Missing Object
+                                                                                                                                                                          (c) Attribute
+                                                                                                                                                                                          (d) Object Mixture
+                                                                                                                                                                          Misalignment
+
+                                         Text-to-image (T2I) diffusion models have advanced no-
+
+
+
+                                                                                                                SDXL
+                                         tably, but still fail to satisfy prompt conditions, resulting in
+                                         attribute mismatches and missing objects. These errors nor-
+                                         mally fall into two categories: concept loss, when an object
+                                         or attribute (i.e., concept) goes missing, and concept con-            TIE (Ours)
+                                         fusion, when an attribute is assigned to the wrong object
+                                         or multiple objects blend together. Recent studies suggest
+                                         that these challenges are caused by the limited capacity                             “a brown boat    “a red bench              “a silver spoon   “a blue bowl
+                                         of CLIP text encoder to capture fine-grained semantic de-                           and a blue cat” and a green book”          and a gold fork” and a red chair”
+
+                                         tails. Although several methods have been proposed, con-
+                                                                                                                                       Figure 1. Failure cases in simple prompts.
+                                         cept loss and concept confusion persist in recent T2I mod-
+                                         els when handling multi-object, multi-attribute prompts. In             achieving notable performance in generating images from
+                                         this paper, we conduct an embedding-level analysis to de-               general prompts [30, 33, 35]. However, they continue to
+                                         velop a training-free, inference-time solution for concept              struggle with prompts involving multiple objects and at-
+                                         loss and concept confusion across CLIP-based T2I mod-                   tributes (e.g., color, shape), often resulting in semantic in-
+                                         els. We find that (1) concepts mentioned later exhibit higher           consistencies [7, 30]. For example, given a simple prompt
+                                         embedding entropy, reflecting less concentrated represen-               "a brown boat and a blue cat", the generated
+                                         tations that are more often associated with concept loss,               image sometimes contains only a brown boat, or falsely de-
+                                         and (2) the first CLIP attention layer captures the strength            picts a brown cat and a blue boat. As prompt complexity
+                                         of binding between each object and its attribute. Guided                increases, such failures occur more frequently and manifest
+                                         by our findings, we introduce TIE, a method that improves               in more varied forms.
+                                         semantic alignment through a single text-embedding up-                      In text-to-image (T2I) synthesis, the text prompt itself
+                                         date. TIE addresses concept loss via entropy-aware sin-                 specifies the desired constraints on the output, in which ob-
+                                         gular value amplification and resolves concept confusion                jects should appear and which attributes should be bound
+                                         through interpolation–extrapolation binding based on CLIP               to each object. Failures in controlled generation can there-
+                                         attention scores, all in a training-free manner. Extensive ex-          fore be viewed as violations of these prompt-induced con-
+                                         periments demonstrate that TIE enhances semantic fidelity               straints. For clear understanding, these failures can be clas-
+                                         in multi-concept scenarios with minimal sampling over-                  sified into two categories: concept loss and concept confu-
+                                         head. The project page is available at https://hong-                    sion, as illustrated in Fig. 1. Concept loss occurs when some
+                                         sujung.github.io/TIE/.                                                  of the intended objects or attributes specified in the prompt
+                                                                                                                 are missing from the generated image. This concept loss in-
+                                         1. Introduction                                                         cludes cases where objects appear without their correspond-
+                                                                                                                 ing attributes (Fig. 1a) or where an object is entirely omit-
+                                         Text-to-image (T2I) generation has advanced substantially
+                                                                                                                 ted (Fig. 1b). In contrast, concept confusion arises when
+                                         through the development of diffusion models [9, 28, 33, 35],
+                                                                                                                 the binding between attributes and objects are incorrectly
+                                           * Equal contribution.                                                 aligned. Such misalignment leads attributes to be assigned
+                                           † Corresponding author.                                               to unrelated objects (Fig. 1c) or merges objects (Fig. 1d).
+
+
+                                                                                                            1
+These failures indicate that even large-scale T2I models still        text embeddings in a single step without training, making it
+struggle with multi-object and multi-attribute prompts.               readily applicable to existing CLIP-based T2I models while
+    Several studies [4, 11, 28] have attributed these failures        improving semantic fidelity.
+to limitations in the textual representations used by T2I                Our main contributions are as follows:
+models. Although the widely used CLIP text encoder [29]               • We identify two indicators that jointly address concept
+provides rich textual representations, it often struggles to            loss and concept confusion. First, token entropy captures
+capture fine-grained details [19, 37, 43, 44]. To address this          how concentrated each token representation is and pro-
+limitation, previous works have proposed various strate-                vides a useful cue for mitigating concept loss. Secondly,
+gies for improving compositional generation. Some meth-                 the L0 attention score effectively captures attribute-object
+ods directly manipulate text representations by merging to-             binding and serves as a indicator for how much the bind-
+kens [15], adaptively binding embeddings [47], or itera-                ing should be adjusted to address concept confusion.
+tively optimizing them [5], while others rely on additional           • We propose TIE, inference-time framework that enhances
+supervision such as prompt parsing [11]. More recent ap-                text-image alignment via a single-step embedding update
+proaches instead intervene during diffusion sampling, for               using AEP and IEB. AEP amplifies concept tokens with
+example by rebalancing cross-modal attention [25] or steer-             high embedding entropy to prevent concept loss, while
+ing flow-matching dynamics [3]. However, these methods                  IEB adjusts inter-concept relations using CLIP attention
+either target specific compositional failures, require addi-            to clarify associations between each object and its at-
+tional supervision, or introduce extra sampling-time com-               tribute, thereby addressing concept confusion.
+putation. In this work, we perform a concept-level analysis           • Experimentally, TIE improves prompt-constraint satisfac-
+of the CLIP text encoder and its embeddings to devise a uni-            tion on multi-attribute and multi-object benchmarks with
+fied and efficient solution to both concept loss and concept            minimal inference-time overhead compared to baselines.
+confusion.
+    To address these challenges, we identify two indicators
+                                                                      2. Related Works
+of concept loss and concept confusion. First, to address con-         Text-to-image (T2I) diffusion models have advanced re-
+cept loss, we observe a positional bias in which concepts             markably, enabling the generation of realistic images from
+appearing later in the prompt are more likely to be omit-             a given prompt [9, 28, 33, 45]. To generate text conditional
+ted in the generated image. Based on this finding, we look            images, T2I diffusion models integrate embeddings from
+for a quantitative measure which estimates the likelihood of          a text encoder into the denoising network through mecha-
+concept loss. Through various observations, we find that to-          nisms such as cross-attention [6, 22, 27, 30, 35]. However,
+ken entropy, the entropy of each token embedding, reflects            they often struggle to preserve the semantic alignment be-
+how diffusely its information is distributed and serves as a          tween prompts and generated images when multiple objects
+proxy of concept loss. Second, to mitigate concept confu-             or attributes are involved [7, 20, 30, 31].
+sion, we look into the first layer attention scores of the CLIP
+                                                                      Inference-time Methods. Prior methods improve com-
+text encoder, referred to as L0 attention scores. We demon-
+                                                                      positional generation by intervening in the diffusion
+strate that L0 attention scores effectively show the strength
+                                                                      sampling process. A&E [4] pioneered sampling-time
+of binding between concept tokens and how much it should
+                                                                      cross-attention modification, while SynGen [32] and
+be strengthened to reduce concept confusion. These two in-
+                                                                      EBAMA [46] enhance concept binding through attention
+dicators are associated with both concept loss and concept
+                                                                      alignment and energy-based guidance. InitNO [14] instead
+confusion using only the internal mechanisms of the CLIP
+                                                                      optimizes the initial noise, and CONFORM [26] employs a
+text encoder.
+                                                                      contrastive objective to improve generation fidelity. More
+    Based on our findings, we propose two methods to                  recently, TACA [25] rebalances cross-modal attention in
+address the limitations of T2I models: Adaptive Em-                   MM-DiTs, while FOCUS [3] steers flow-matching dynam-
+bedding Preservation (AEP) for mitigating concept loss,               ics through stochastic optimal control. Despite their ef-
+and Interpolation-Extrapolation Binding (IEB) for resolv-             fectiveness, these methods incur additional sampling-time
+ing concept confusion. AEP adaptively amplifies tokens                computation, limiting their practical efficiency.
+according to token entropy to encourage their presence in
+the generated image. IEB enhances the semantic binding                Text Embedding-based Methods. Another line of work
+strength between objects and their corresponding attributes           aims to improve the CLIP text embeddings [29], which is
+based on the L0 layer, while simultaneously suppressing the           widely used but tends to capture broad semantic meanings
+binding strength of irrelevant attribute-object pairs. We re-         while missing fine-grained details [37, 43]. In addition, it
+fer to the combined framework of AEP and IEB as TIE.                  is necessary to address the problem that the CLIP text en-
+TIE improves text-image semantic alignment across multi-              coder is biased toward objects mentioned earlier in a sen-
+attribute and multi-object scenarios. Our method updates              tence [1, 2]. Magnet [47] explores modifying only the text
+
+
+                                                                  2
+                                                                                     attr1 & obj1                                       First
+                                                                                     attr2 & obj2                                       Second
+
+
+
+
+                                         Normalized Entropy
+
+
+
+
+                                                                                                    Normalized Entropy
+                                                                                                                                        Third
+
+
+
+
+                                                                                                                                                                               ⟨obj2⟩ Entropy
+                                                                                                                                                 ⟨attr2⟩ Entropy
+                                                                  Original            Swapped                            Attribute   Object
+
+(a) Attribute–Object Pair Match Rates                                   (b) Positional Influence on Token Entropy                                   (c) Token Entropy Comparison
+
+Figure 2. Analysis of positional bias and token entropy on concept loss. (a) When issuing the prompt "a 〈attr1 〉 〈obj1 〉 and
+a 〈attr2 〉 〈obj2 〉", 〈attr2 〉 and 〈obj2 〉 is far more prone to being misaligned or missing. (b) Left: The attribute-object pair
+mentioned later in the prompts shows higher entropy than the pair mentioned earlier, regardless of the tokens themselves. Right: Same
+holds for 3-pair prompts. (c) Comparison of entropy for 〈attr2 〉 (red) and 〈obj2 〉 (blue) tokens each for when 〈attr2 〉 is Aligned,
+Misaligned or Missing, and when 〈obj2 〉 is Present, Mixed, or Missing, demonstrating that higher entropy is associated with concept loss.
+
+embeddings to enhance semantic coherence. ToMe [15] and                                                  measurements can be applied to longer and syntactically
+TeeMo [36] further refine embedding representations by in-                                               more complex prompts.
+vestigating token merging “a
+                          and   geometric
+                             ⟨attr ⟩ ⟨obj ⟩ andproperties,
+                                     1          a ⟨attr ⟩ ⟨objrespec-
+                                                        1      ⟩             2   2
+                                  and a ⟨attr ⟩ ⟨obj ⟩”       3        3
+tively. However, such embedding-based approaches tend
+to show weaker text-image alignment compared to cross-                                                   Preliminary. T2I diffusion models [28, 33] typically con-
+attention-based ones. In this paper, we analyze the charac-                                              sist of a text encoder and a denoising network. We focus on
+teristics of the commonly used CLIP text encoder and its                                                 models using the CLIP text encoders adopted in the Sta-
+embeddings, and explore the potential of embedding-based                                                 ble Diffusion family [9, 28, 33]. Given an input prompt
+methods.                                                                                                 P, the CLIP text encoder τ produces text embeddings un-
+                                                                                                         der causal self-attention, such that token i attends only to
+RL-based Post-training Methods. A recent line of work                                                    tokens at positions j ≤ i. The resulting representation is
+improves semantic binding by post-training the genera-                                                   C = τ (P) ∈ RN ×M , where N is the number of tokens and
+tive model itself with reinforcement learning [13, 23, 42].                                              M is the embedding dimension. Padding is used to obtain a
+These methods apply Group Relative Policy Optimization                                                   fixed sequence length.
+(GRPO)-style optimization to diffusion and flow-matching
+backbones, directly optimizing text–image alignment with
+                                                                                                         3.1. Token Entropy and Concept Loss
+reward signals and achieving strong compositional genera-                                                Understanding which text representations are vulnerable to
+tion performance. They operate on the denoising network                                                  concept loss is a necessary first step toward correcting them.
+while keeping the text encoder fixed, whereas our method                                                 Previous work [5] shows that objects mentioned later in a
+modifies the text conditioning itself without any training.                                              prompt are more likely to disappear from generated images,
+Such reward-based post-training and our approach therefore                                               revealing a positional bias associated with CLIP’s causal
+address different stages of the generation pipeline and can                                              text encoding. We first examine whether a similar positional
+be applied in a complementary manner in future work.                                                     effect occurs for attributes and then ask whether an internal
+                                                                                                         property of the corresponding token embeddings can serve
+3. Analysis of Concept Loss and Confusion                                                                as a proxy for such failures.
+CLIP text encoders [29], widely used in text-to-image
+(T2I) models, provide rich textual representations but of-                                               Positional Bias in Attribute Tokens. We sample
+ten fail to preserve fine-grained compositional informa-                                                 prompts of the form "a ⟨attr1 ⟩ ⟨obj1 ⟩ and a
+tion [37, 43]. Such failures can lead to concept loss, where                                             ⟨attr2 ⟩ ⟨obj2 ⟩" from Concept Conjunction 500 (CC-
+a requested concept is not faithfully rendered, and concept                                              500) [11] and retain 220 generated images in which
+confusion, where attributes are associated with the wrong                                                both objects are present. For each image, we manually
+objects [19, 26, 44]. To understand these failures within the                                            categorize the attribute associated with each object as
+text encoder, we identify two internal signals: token entropy                                            Aligned, Misaligned, or Missing. As shown in Fig. 2a, the
+as a proxy for concept-loss propensity (Section 3.1) and                                                 later-mentioned attribute–object pair exhibits substantially
+L0 attention as a signal of attribute–object binding strength                                            more missing and misaligned attributes than the earlier pair.
+(Section 3.2). For controlled analysis, we first study simple                                            Thus, the positional bias previously observed for objects
+multi-attribute prompts. Because both quantities are com-                                                also manifests in attribute rendering. This observation
+puted solely from text-encoder representations, the same                                                 alone, however, cannot determine whether a particular
+
+
+                                                                                             3
+prompt is prone to concept loss. We therefore examine the                                                                                                                          explained solely by differences in the vocabulary occupy-
+geometry of individual token embeddings.                                                                                                                                           ing each prompt position.
+Token Entropy and Embedding Geometry. For a token
+embedding ci ∈ Rd , we define normalized token entropy as                                                                                                                          Entropy as a Proxy for Concept Loss. Finally, we mea-
+                                                                                                                                                                                   sure whether entropy is associated with actual rendering
+                                                                                                                                                                                   failures. Using the setting of Fig. 2a, we compare token
+    \label {eq:token_entropy} p_{i,j} = \frac {|c_{i,j}|} {\sum _{k=1}^{d}|c_{i,k}|}, \qquad \mathcal {H}_i = -\frac {1}{\log d} \sum _{j=1}^{d} p_{i,j}\log p_{i,j}.    (1)       entropy across correctly and incorrectly rendered concepts.
+                                                                                                                                                                                   As shown in Fig. 2c, for both attributes and objects, en-
+ This quantity is scale-invariant and increases as the rep-                                                                                                                        tropy is higher when the requested concept is misaligned,
+resentation is distributed across a larger effective number                                                                                                                        mixed, or missing than when it is correctly rendered. The
+of coordinates, a notion closely related to effective dimen-                                                                                                                       relationship also persists at the prompt level. Mean con-
+sionality [34]. We further find that this dispersion has a                                                                                                                         cept entropy increases as rendering deteriorates from both
+concrete geometric interpretation in CLIP. CLIP represen-                                                                                                                          concepts being present to one or neither being present, and
+tations are anisotropic and share a dense mean embedding                                                                                                                           concept loss frequency rises substantially across entropy
+direction µ̂ = µ/∥µ∥2 [10]. Token entropy strongly corre-                                                                                                                          quantiles. At the individual-concept level, token entropy
+lates with the cosine alignment between ci and µ̂ (Spearman                                                                                                                        provides a graded signal of susceptibility to concept loss
+|ρ| = 0.88 for CLIP-G), suggesting that higher entropy re-                                                                                                                         rather than a discrete prediction. We therefore use it to
+flects stronger alignment with CLIP’s shared anisotropic di-                                                                                                                       adapt the strength of embedding preservation for each con-
+rection. We next test whether alignment with this shared                                                                                                                           cept, assigning stronger intervention to representations with
+direction is causally related to concept loss. To isolate                                                                                                                          higher entropy. Additional predictive-validity, calibration,
+the effect of CLIP’s shared direction, we perturb each con-                                                                                                                        and causal-intervention results are provided in the supple-
+cept embedding by an exact norm-preserving rotation in the                                                                                                                         mentary material.
+plane spanned by ci and µ̂, while fixing the displacement                                                                                                                          3.2. Token Relationships in L0 Attention
+to ∥c′i − ci ∥2 = α∥ci ∥2 . Rotating the embedding toward
+µ̂ increases the concept loss rate from 27.3% to 35.7%,                                                                                                                            Concept confusion requires identifying not only whether
+whereas rotating it away reduces the rate to 22.3%. Ro-                                                                                                                            an individual token is weakly represented, but also how
+tations along random directions orthogonal to ci , with the                                                                                                                        strongly an attribute is bound to its intended object. We
+same displacement magnitude, produce negligible changes.                                                                                                                           therefore analyze relational information within the CLIP
+These results show that movement toward CLIP’s shared                                                                                                                              text encoder. Hereafter, a related pair denotes the cor-
+direction increases concept-loss even when the perturbation                                                                                                                        rect attribute–object association, e.g., ⟨attr1 ⟩-⟨obj1 ⟩,
+magnitude is controlled.                                                                                                                                                           whereas an unrelated pair associates the same attribute with
+                                                                                                                                                                                   an object from another concept, e.g., ⟨attr1 ⟩-⟨obj2 ⟩. We
+                                                                                                                                                                                   find that L0 self-attention contains a useful signal of this re-
+Higher Entropy in Later Concepts. We next test
+                                                                                                                                                                                   lationship.
+whether token entropy exhibits the positional pattern ob-
+served in rendering failures.        We construct semanti-                                                                                                                         Similarity Metrics Between Embeddings. We first ask
+cally equivalent prompts with reversed concept order, "a                                                                                                                           whether conventional embedding space metrics reveal the
+⟨attr1 ⟩ ⟨obj1 ⟩ and a ⟨attr2 ⟩ ⟨obj2 ⟩" and "a                                                                                                                                    correct attribute–object association. Using prompts from
+⟨attr2 ⟩ ⟨obj2 ⟩ and a ⟨attr1 ⟩ ⟨obj1 ⟩", and addi-                                                                                                                                the A&E dataset [4], we compare cosine similarity and L2
+tionally evaluate synthetically generated prompts contain-                                                                                                                         distance for related and unrelated attribute–object pairs. As
+ing three attribute–object pairs. As shown in Fig. 2b, later-                                                                                                                      shown in Fig. 3b, the resulting distributions substantially
+mentioned attributes and objects consistently exhibit higher                                                                                                                       overlap. Thus, the final token embeddings alone do not pro-
+entropy. Because some nouns in CC-500 occur preferen-                                                                                                                              vide a clear measure of binding strength.
+tially at particular prompt positions, the observed entropy
+difference could be confounded by vocabulary. To control                                                                                                                           Layer-wise Self-Attention Analysis for Binding. Moti-
+for this effect, we repeat the analysis using only nouns that                                                                                                                      vated by observations that different Transformer layers play
+appear in both positions and compare their entropy when                                                                                                                            distinct functional roles [8, 40, 41], we instead examine
+placed earlier versus later in the prompt. The later posi-                                                                                                                         self-attention throughout the CLIP text encoder. We se-
+tion entropy remains significantly higher for CLIP-G, with                                                                                                                         lectively mask the key of an attribute token at individual
+an average increase of 0.0033. The standardized paired ef-                                                                                                                         self-attention layers and inspect its effect on generation.
+fect size is dz = 1.08, indicating a large within concept                                                                                                                          As illustrated in Fig. 3a, masking the attribute at L0 fre-
+positional effect, and the difference is statistically signifi-                                                                                                                    quently removes or weakens the corresponding attribute in
+cant (p = 1.9 × 10−9 ). These results show that the in-                                                                                                                            the generated image, whereas applying the same interven-
+crease in entropy for later mentioned concepts cannot be                                                                                                                           tion at later layers has much smaller effect. This indicates
+
+
+                                                                                                                                                                               4
+                    “a blue car and a pink balloon”                                                   “a white chair and a purple apple”
+
+
+
+
+          SDXL             L0                  L3            L6            L9                 SDXL             L0                  L3                 L6                  L9
+                                                                  (a) Layer-wise Attribute Masking
+                                                                                                                           “a green apple and   “a red car and    “a blue boat and
+                                                                                                                            a blue backpack”     a brown cat”       a yellow dog”
+
+                                Related               Related                                                  Related
+                                Unrelated             Unrelated                                                Unrelated
+Density
+
+
+
+
+                                            Density
+
+
+
+
+                                                                                Density
+                 Cosine Similarity                         L2 Distance                          L0 Attention Scores           𝐴𝐴𝑖𝑖,𝑗𝑗 = 0.11     𝐴𝐴𝑖𝑖,𝑗𝑗 = 0.21      𝐴𝐴𝑖𝑖,𝑗𝑗 = 0.33
+
+          (b) Embedding Similarity and Distance Distribution                              (c) L0 Attention Scores Distribution and Generated Images
+
+Figure 3. Analysis of text embeddings and self-attention in the CLIP text encoder. (a) Layer-wise attribute masking shows that gen-
+eration is particularly sensitive to attribute interventions at the first self-attention layer (L0), compared with later layers. (b) Conventional
+embedding-space metrics show substantial overlap between related and unrelated attribute–object pairs. (c) L0 attention provides a contin-
+uous signal of attribute–object relationships.
+
+
+that early self-attention plays a particularly important role                                 distance, L0 attention remains informative about the un-
+in establishing compositional relationships.                                                  derlying attribute–object relationship. Together with the
+    We further test whether the effect of L0 attribute mask-                                  controlled masking experiments above, these results indi-
+ing can be explained simply by the magnitude of the in-                                       cate that L0 attention contains relationship-specific infor-
+duced representation change. Masking function words at                                        mation beyond token proximity and is relevant to the result-
+L0 produces a conditioning-space displacement 8.4× larger                                     ing generation. We therefore use the L0 attention score as a
+than masking the target attribute, yet increases the target                                   continuous, adaptive signal for determining the strength of
+concept-loss rate by only 1.5 percentage points. In contrast,                                 attribute–object binding in IEB.
+masking the target attribute causes a much smaller represen-
+tation change but increases the loss rate by 58.5 percentage                                  4. Methods
+points. The effect also depends strongly on layer depth, as
+applying the same attribute mask at a middle layer increases                                  Our method is motivated by the two key indicators derived
+the loss rate by only 1.0 percentage points. Together, these                                  from Section 3: token entropy for concept loss and L0 at-
+results indicate that the large effect of L0 attribute mask-                                  tention score for concept confusion. We improve T2I gen-
+ing arises from disrupting semantically relevant information                                  eration in multi-object and multi-attribute scenarios by inte-
+at the first layer, supporting the role of L0 in establishing                                 grating two complementary components as shown in Fig. 4.
+attribute–object binding.                                                                     To address concept loss, we first implement Adaptive Em-
+                                                                                              bedding Preservation (AEP), which exploits the tendency
+L0 Attention as a Continuous Binding Signal. We next                                          of tokens with higher token entropy. After recovering lost
+examine whether L0 attention between attribute and object                                     concepts, we mitigate concept confusion through Interpola-
+tokens provides a continuous signal of their binding rela-                                    tion Extrapolation Binding (IEB), which estimates concept
+tionship. As shown in Fig. 3c, before controlling for token                                   binding strength based on L0 attention scores.
+distance, related and unrelated pairs are strongly separable,
+                                                                                              4.1. Adaptive Embedding Preservation
+with AUCs of 0.980 for CLIP-L and 0.965 for CLIP-G.
+However, related attribute–object pairs are often closer in                                   To preserve concepts that are more prone to concept loss us-
+the prompt by construction, and attention may naturally be                                    ing individual token embeddings, we introduce AEP. This
+stronger between nearby tokens. We therefore apply two                                        method selectively amplifies concept token embeddings
+controls for token distance. First, we regress token dis-                                     with end-of-text (EOT) tokens using entropy-aware singu-
+tance out of the attention scores, yielding AUCs of 0.648                                     lar value decomposition (SVD). Prior work has shown that
+for CLIP-L and 0.624 for CLIP-G. Second, we compare re-                                       EOT tokens also encode semantic information crucial for
+lated pairs with unrelated pairs matched by token distance,                                   concept composition [38, 47]. Our AEP jointly strengthens
+obtaining AUCs of 0.634 and 0.658, respectively. Although                                     explicit concept token embeddings and EOT tokens accord-
+the separation decreases substantially after controlling for                                  ing to their entropy, successfully mitigating concept loss.
+
+
+                                                                                          5
+                 “a yellow bench and a blue bird”
+
+
+
+
+                                                                                                                    Concept1
+                                                                                                                                                                                                          Eq.(2)
+                     0        1                2            3       4       5          6                                                                           ⋯                                                                                                                                                                ⋯
+                                                                                                                                                                               ∑ 
+                                                                                                                                                                                              ⋱       Entropy-Aware                          ⋱                  
+                                                                                                                                                                                                                                                              U∑
+    Layer0 (L0)                                                                                                                                                                                         Boost                                                                                            
+   Attention Map                          Text Encoder                                                                                                       
+                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                              ∑                                             
+                                                                                                                                                                                                                                            ∑
+                                                                                   ⋯
+                                                                     
+
+
+
+
+                                                                                                                    Concept2
+                                                                                                                                                                             Eq.(2)
+                                                                                                                                                                   ⋯                          ⋱                                              ⋱                                                                                      ⋯
+                                                                                                                                                                               ∑                   Entropy-Aware                                              
+                                                                                                                                                                                                                                                               U∑
+                                                                                                                                                                                                        Boost                                                                                            
+                                                   AEP                                                                                                       
+                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                              ∑                                             
+                                                                                                                                                                                                                                            ∑
+                                                    IEB                                                                                                                     (b) Adaptive Embedding Preservation(AEP)
+
+                                                                                   ⋯                                                                                                          ⋯    ⋯     ⋯
+                                                                                                                                     
+                                                                                                                                                                                                                                                                                   ̃
+
+
+
+
+                                                                                                                                                                                         ⋯
+                                                                     
+                                                                                                                     Eq.(3)                                                                                                                                                 Eq.(4)
+                                                                                                                                                              , =   ⋅   1 − ,                                      , =  ⋅ ,
+                                                                                                                                           ̃                                                                                                                                                   
+                                                                                                                                                                                                                                                                                                      
+
+
+
+
+                                                                                                                                                                                         ⋯
+                                               SD Model                                                                                                                                  
+                                                                                                                                                                                         
+                 concept1                                                                                                                                          Eq.(3)                                                                                                                                               
+
+
+
+
+                                                                                                                                                                                         ⋯
+                                                                                                                                                       ̃                                                                                                                                                                 Eq.(4)
+                 concept2
+                                                                                                                                                              
+                                                                                                                                                                                       , ,                             ̃
+                 Frozen                                                                                                                                                            L0 Attention Map
+                                                                                                                                    Interpolation                                                                  Extrapolation
+                                  (a) Overall Pipeline                                                                                                                  (c) Interpolation-Extrapolation Binding (IEB)
+
+Figure 4. Overview of the proposed TIE framework. (a) Overall pipeline of TIE. (b) Adaptive Embedding Preservation (AEP), which
+decorrelates each concept from its preceding concepts and adaptively modifies text embeddings according to token entropy to mitigate
+concept loss. (c) Interpolation-Extrapolation Binding (IEB), which uses first-layer self-attention as a continuous binding signal to mitigate
+concept confusion.
+
+
+Singular Value Decomposition for Concepts. SVD de-                                                                                                                             H(p) and erank(X̂) ≤ erank(X).*
+composes a matrix into orthogonal directions ordered by                                                                                                                           Proposition 1 shows the rescaling provably concentrates
+singular values, concentrating semantic information into its                                                                                                                   the spectrum along a small set of dominant directions. Em-
+leading components. Motivated by previous works [21, 24],                                                                                                                      pirically the effective rank drops by 8–13% (4.28 → 3.92
+we leverage SVD to amplify singular values in concept to-                                                                                                                      on CLIP-L, 12.73 → 11.67 on CLIP-G), and the token en-
+ken embeddings along with EOT tokens, thereby concen-                                                                                                                          tropy of Eq. (1) moves in the same direction for 99.9% of
+trating information for tokens with higher entropy to miti-                                                                                                                    concepts, so the two notions of concentration agree here.
+gate concept loss.                                                                                                                                                             However, preventing concept loss requires a more adaptive
+   For simplicity, we explain with prompts in which                                                                                                                            mechanism that can predict the risk of omission for individ-
+only one attribute is paired with each object.                                                                                         For                                     ual concepts.
+each attribute–object pair, we build the token-related
+matrix  X := \bigl [\,c^{\text {attribute}}_k,\; c^{\text {object}}_k, c^{\text {EOT}}_0,\dots , c^{\text {EOT}}_{\,N-|\mathcal {P}|-2}\bigr ],                                Entropy-aware Boost. As shown in Sec. 3.1, token en-
+where                    cconcept
+                    is the embedding of the k-th pair                                                                                                                          tropy provides a continuous proxy for concept-loss propen-
+                          k
+(Fig. 4).   We     first gather the token embeddings c =                                                                                                                       sity. Accordingly, we apply entropy-aware scaling that
+ SOT P
+  c , c0 , . . . , cP        EOT          EOT                                                                                                      SOT                         assigns stronger amplification to higher-entropy concepts
+                    |P|−1 , c0 , . . . , cN −|P|−2 , where c
+                                                                                                                                                                               rather than uniformly rescaling all embeddings. We com-
+is the start-of-text (SOT) token embeddings, cP                                                                     i is the                                                   pute the token entropy Hi as in Eq. (1) and average it over
+i-th prompt token, and cEOT        denotes the i-th EOT to-
+                              i                                                                                                                                                the N − |P| embeddings in the concept-specific matrix X:
+ken. Decomposing X gives  X = U \Sigma V^{\!\top },\quad \Sigma =\operatorname {diag}(\sigma _0,\sigma _1,\dots ,\sigma _{n_0-1}),\; n_0=\min (M,N-|\mathcal {P}|-1) 
+
+where U and V are orthogonal matrices. Each singular                                                                                                                                                                 \tilde {\mathcal {H}} = \frac {1}{N-|\mathcal {P}|} \sum _{i=1}^{N-|\mathcal {P}|} \mathcal {H}_i . 
+value is directly rescaled as  \hat {\sigma }_i=\sigma _i\,\delta \,e^{\gamma \sigma _i},  with γ and δ
+as positive constants, concentrating the information in the
+concept embedding.                                                                                                                                                             Let σi denote the i-th singular value of X obtained from
+                                                                                                                                                                               X = U ΣV ⊤ . Since later concepts inherit information
+                                                                                                                                                                               from earlier ones under causal attention, we first decorre-
+                                                                                                                                                                               late each subsequent concept by subtracting C times the
+Proposition 1. Let σ1 ≥ · · · ≥ σn > 0 and f (σ) = P   σg(σ)                                                                                                                       * p̂i /pi ∝ g(σi ) is non-increasing, giving majorization; Shannon en-
+with g positive and
+                  P increasing.   Writing  pi  = σ i /   j σj                                                                                                                  tropy is Schur-concave. Both g(σ) = δeγσ here and g(σ) = δeγσH̃ in
+and p̂i = f (σi )/ j f (σj ), we have p̂ ≻ p, hence H(p̂) ≤                                                                                                                    Eq. (2) are increasing for γ > 0.
+
+
+                                                                                                                                                                        6
+Table 1. Quantitative results of concept binding performance. All methods are evaluated with their corresponding backbones. BLIP-
+VQA [17] scores are measured on five categories: Color, Shape, Texture, Spatial, and Complex prompts. Inference time is compared across
+methods to assess efficiency. Best results are shown in bold and second-best results are underlined. For SD3.5-L, only bold formatting is
+used due to the limited number of compared methods.
+
+
+                                                                                                                        Opt-                                   Inference                                                                                              BLIP-VQA ↑
+   Backbone               Method
+                                                                                                                        free                                   Time (s) ↓       Color                                     Shape                                               Texture                                                  Spatial                                               Complex
+   SDXL                                                                                                                                                           9.82          0.5940                                  0.5068                                                  0.5961                                                 0.6249                                                     0.4437
+                          A&EXL                                                                                                                                  62.72          0.5934                                  0.5082                                                  0.6040                                                 0.6230                                                     0.4434
+                          SynGenXL                                                                                                                               22.42          0.5948                                  0.5059                                                  0.5955                                                 0.6258                                                     0.4426
+                          ToMe                                                                                                                                   42.73          0.5161                                  0.3551                                                  0.5621                                                    –                                                       0.2818
+                          Magnet                                                                                               ✓                                 10.66          0.6833                                  0.5076                                                  0.5963                                                 0.6239                                                     0.4507
+                          TIE (Ours)                                                                                           ✓                                 11.86          0.7004                                  0.5632                                                  0.6703                                                 0.6320                                                     0.4577
+   SD3.5-M                                                                                                                                                       10.33          0.7838                                  0.5933                                                  0.7457                                                 0.6610                                                     0.4972
+                          FOCUS                                                                                                                                  45.55          0.7873                                  0.6071                                                  0.7570                                                 0.6654                                                     0.5025
+                          TACA                                                                                                                                   14.43          0.7912                                  0.6088                                                  0.7584                                                 0.6671                                                     0.5126
+                          Magnet                                                                                               ✓                                 10.93          0.7907                                  0.5976                                                  0.7469                                                 0.6610                                                     0.4984
+                          TIE (Ours)                                                                                           ✓                                 10.48          0.7938                                  0.6120                                                  0.7603                                                 0.6586                                                     0.4986
+   SD3.5-L                                                                                                                                                       15.62          0.7766                                  0.6117                                                  0.7518                                                 0.6837                                                     0.5050
+                          TIE (Ours)                                                                                           ✓                                 17.13          0.7826                                  0.6185                                                  0.7548                                                 0.6933                                                     0.5154
+
+
+Table 2. Ablation study on T2I-CompBench. AEP and IEB im-                                                                                                                           positional structure [39], we incorporate concept tokens to
+prove concept binding both individually and jointly on the SD3.5-                                                                                                                   both attribute and object tokens bidirectionally to bring their
+Large backbone.                                                                                                                                                                     embeddings closer. In contrast, we extrapolate unrelated
+                                                                                                                                                                                    concepts by pushing them further apart. To reflect bind-
+                                                                                                           BLIP-VQA ↑
+  Exp. #    AEP IEB                                                                                                                                                                 ing strength between tokens, IEB leverages the L0 attention
+                                       Color                                 Shape                                 Texture Spatial Complex                                          score introduced in Section 3.2.
+    1                               0.7766                                  0.6117                                   0.7518                                 0.6837   0.5050
+    2       ✓                       0.7775                                  0.6167                                   0.7529                                 0.6931   0.5161
+    3             ✓                 0.7831                                  0.6137                                   0.7550                                 0.6923   0.5171         Interpolation for Binding. We strengthen the association
+ 4 (Ours)   ✓     ✓                 0.7826                                  0.6185                                   0.7548                                 0.6933   0.5154
+                                                                                                                                                                                    between related attribute–object pairs by interpolating their
+                                                                                                                                                                                    embeddings toward each other. Let (cP        P
+                                                                                                                                                                                                                            i , cj ) denote a re-
+                                                                                                                                                                                                              P
+meanPembedding of its preceding concepts, c̄P        P                                                                                                                              lated token pair, where ci corresponds to the attribute and
+                                                k = ck −
+ C          P                                                                                                                                                                       cP
+                                                                                                                                                                                     j to its object. Their updated embeddings are
+k−1    j<k cj , and construct X from the resulting embed-
+dings. We rescale each original singular value as                                                                                                                                      \footnotesize \tilde {c}^{\mathcal {P}}_i = (1-\alpha _{i,j})c^{\mathcal {P}}_i + \alpha _{i,j}c^{\mathcal {P}}_j, \qquad \tilde {c}^{\mathcal {P}}_j = (1-\alpha _{i,j})c^{\mathcal {P}}_j + \alpha _{i,j}c^{\mathcal {P}}_i. \label {eq:interpolation}  (3)
+
+                     \label {eq:entropy_boost} \hat {\sigma }_i = \sigma _i \cdot \delta \exp \!\left ( \gamma \sigma _i \tilde {\mathcal {H}} \right ),                  (2)       Here, αi,j = λint (1 − Ai,j ), where Ai,j is the L0 attention
+                                                                                                                                                                                    score between the pair. Thus, weakly bound pairs receive
+where γ > 0 controls the strength of entropy-aware am-                                                                                                                              stronger interpolation, while λint controls the overall update
+plification and δ > 0 is a global scaling factor. Con-                                                                                                                              strength.
+sequently, concept representations with higher entropy re-
+ceive stronger spectral concentration, while lower-entropy
+concepts are modified more conservatively.                                                                                                                                          Extrapolation for Repulsion. After reinforcing related
+                                                                                                                                                                                    pairs, we suppress interference between unrelated concepts
+4.2. Interpolation-Extrapolation Binding                                                                                                                                            by extrapolating their embeddings apart. For an unrelated
+After addressing concept loss through AEP, we now pro-                                                                                                                              pair (cP    P
+                                                                                                                                                                                           k , cl ), we update
+pose the Interpolation–Extrapolation Binding (IEB) mech-                                                                                                                               \footnotesize \tilde {c}^{\mathcal {P}}_k = (1+\beta _{k,l})c^{\mathcal {P}}_k - \beta _{k,l}c^{\mathcal {P}}_l, \qquad \tilde {c}^{\mathcal {P}}_l = (1+\beta _{k,l})c^{\mathcal {P}}_l - \beta _{k,l}c^{\mathcal {P}}_k. \label {eq:extrapolation}  (4)
+anism to resolve concept confusion, ensuring that the rela-
+tionships between concepts are accurately reflected in the                                                                                                                          Here, βk,l = λext Ak,l . Thus, unrelated concepts with
+generated image, as illustrated in Fig. 4c. Inspired by prior                                                                                                                       stronger attention receive stronger repulsion, while λext
+studies indicating that CLIP text embeddings exhibit com-                                                                                                                           controls the overall update strength.
+
+
+                                                                                                                                                                                7
+                 TIE (Ours)             SD3.5                FOCUS                  TACA                 Magnet
+
+
+
+
+                                                a brown chair and a red dog
+
+
+
+
+                                          a metallic desk lamp and a glass table
+
+Figure 5. Qualitative comparison of TIE with SD3.5-based models. We compare TIE with other SD3.5-based models. The results show
+that TIE better preserves all objects, along with their spatial relationships and colors, in alignment with the given prompt.
+
+
+5. Experiment                                                        backbones. For SDXL, our method achieves superior per-
+                                                                     formance across all categories compared to other baseline
+Baselines. We compare our model, TIE, with base-                     models. We exclude ToMe [15] from the spatial category
+lines including A&E [4], SynGen [32], Magnet [47], and               evaluation as it is specifically designed for attribute binding
+ToMe [15], all of which are built on the SDXL [28] back-             and does not incorporate spatial structure in its token merg-
+bone. For fair comparison, we adapt A&E and SynGen to                ing process. For SD3.5-Medium, TIE achieves the best per-
+the SDXL base model, since their original implementations            formance on Color, Shape, and Texture, outperforming re-
+are not designed for it. When using SD3.5-Medium as the              cent baselines including FOCUS and TACA, while remain-
+backbone, we compare against FOCUS [3] and TACA [25].                ing competitive on Spatial and Complex prompts. TIE also
+For SD3.5-Large, we report the improvement over the cor-             achieves strong performance on SD3.5-Large, demonstrat-
+responding backbone to assess the scalability of TIE to a            ing consistent gains across model scales. Overall, these
+larger model.                                                        results demonstrate that our method effectively mitigates
+Evaluation Metrics. We employ the BLIP-VQA metric                    concept confusion and prevents concept loss with minimal
+from T2I-CompBench [17] for evaluation. This metric uti-             overhead.
+lizes BLIP for visual question answering, enabling fine-
+grained assessment of attributes in the generated images.            Qualitative Comparison. We qualitatively compare TIE
+Following prior works [12, 15, 16, 18, 36], we evaluate the          with existing semantic binding methods, as shown in Fig. 5.
+Color, Shape, and Texture categories, and further include            The results demonstrate that TIE achieves improved seman-
+the Complex and Spatial categories for a more comprehen-             tic binding performance. In Fig.5, applying our method to
+sive evaluation. For each category, we evaluate all 300              SD3.5 alleviates concept loss while also improving spatial
+benchmark prompts and generate five images per prompt                consistency compared to the baseline models. These results
+using five fixed random seeds. Inference time is measured            highlight the enhanced robustness of TIE in preserving both
+on an RTX A6000 GPU with a batch size of 1. Additional               attribute and object integrity during generation. Additional
+results using other metrics and datasets are provided in the         qualitative examples on diverse models are provided in the
+supplementary material.                                              supplementary material.
+
+Implementation Details. We use Stanza to parse each
+                                                                     6. Conclusion
+prompt and identify its attribute–object relations. L0 at-           Text-to-image diffusion models struggle with multi-concept
+tention scores are averaged across attention heads, and for          prompts. We find that token entropy predicts concept loss,
+concepts spanning multiple CLIP tokens, the corresponding            while L0 attention captures attribute–object binding. We
+token-level quantities are averaged over their constituent to-       propose TIE, a training-free framework combining entropy-
+kens.                                                                aware singular value amplification (AEP) and L0-attention-
+                                                                     based binding (IEB) in a single embedding update. TIE
+5.1. Results                                                         mitigates concept loss and confusion, improving composi-
+Quantitative Comparison. As shown in Tab. 1, we com-                 tional alignment across SDXL and SD3.5 without training
+pare TIE with baselines built on the SDXL and SD3.5                  or model modifications.
+
+
+                                                                 8
+Acknowledgments                                                                guidance for compositional text-to-image synthesis. arXiv
+                                                                               preprint arXiv:2212.05032, 2022. 2, 3
+This work was supported in part by the IITP RS-
+                                                                          [12] Yutong Feng, Biao Gong, Di Chen, Yujun Shen, Yu Liu,
+2024-00457882 (AI Research Hub Project), IITP 2020-
+                                                                               and Jingren Zhou. Ranni: Taming text-to-image diffu-
+II201361, NRF RS-2024-00345806, NRF RS-2023-
+                                                                               sion for accurate instruction following. In Proceedings of
+002620, and IITP RS-2026-25616313. Affiliations: De-
+                                                                               the IEEE/CVF Conference on Computer Vision and Pattern
+partment of Artificial Intelligence (S.H, T.E.C, Y.J, C.Y,
+                                                                               Recognition, pages 4744–4753, 2024. 8
+S.J.H).
+                                                                          [13] Shiran Ge, Chenyi Huang, Yuang Ai, Qihang Fan, Huaibo
+                                                                               Huang, and Ran He. Expand and prune: Maximizing trajec-
+References                                                                     tory diversity for effective grpo in generative models, 2025.
+ [1] Reza Abbasi, Ali Nazari, Aminreza Sefid, Moham-                           3
+     madali Banayeeanzade, Mohammad Hossein Rohban, and                   [14] Xiefan Guo, Jinlin Liu, Miaomiao Cui, Jiankai Li, Hongyu
+     Mahdieh Soleymani Baghshah. Analyzing clip’s perfor-                      Yang, and Di Huang. Initno: Boosting text-to-image diffu-
+     mance limitations in multi-object scenarios: A controlled                 sion models via initial noise optimization. In Proceedings of
+     high-resolution study, 2025. 2                                            the IEEE/CVF Conference on Computer Vision and Pattern
+ [2] Reza Abbasi, Ali Nazari, Aminreza Sefid, Moham-                           Recognition, pages 9380–9389, 2024. 2
+     madali Banayeeanzade, Mohammad Hossein Rohban, and                   [15] Taihang Hu, Linxuan Li, Joost van de Weijer, Hongcheng
+     Mahdieh Soleymani Baghshah. Clip under the microscope:                    Gao, Fahad Shahbaz Khan, Jian Yang, Ming-Ming Cheng,
+     A fine-grained analysis of multi-object representation. arXiv             Kai Wang, and Yaxing Wang. Token merging for training-
+     preprint arXiv:2502.19842, 2025. 2                                        free semantic binding in text-to-image synthesis. Advances
+ [3] Eric Tillmann Bill, Enis Simsar, and Thomas Hofmann. Fo-                  in Neural Information Processing Systems, 37:137646–
+     cus: Optimal control for multi-entity world modeling in text-             137672, 2024. 2, 3, 8
+     to-image generation. In Proceedings of the IEEE/CVF Con-             [16] Xiwei Hu, Rui Wang, Yixiao Fang, Bin Fu, Pei Cheng,
+     ference on Computer Vision and Pattern Recognition, pages                 and Gang Yu.          Ella: Equip diffusion models with
+     5915–5924, 2026. 2, 8                                                     llm for enhanced semantic alignment.           arXiv preprint
+ [4] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and                    arXiv:2403.05135, 2024. 8
+     Daniel Cohen-Or. Attend-and-excite: Attention-based se-              [17] Kaiyi Huang, Kaiyue Sun, Enze Xie, Zhenguo Li, and
+     mantic guidance for text-to-image diffusion models. ACM                   Xihui Liu. T2i-compbench: A comprehensive bench-
+     transactions on Graphics (TOG), 42(4):1–10, 2023. 2, 4, 8                 mark for open-world compositional text-to-image genera-
+ [5] Chieh-Yun Chen, Chiang Tseng, Li-Wu Tsao, and Hong-                       tion. Advances in Neural Information Processing Systems,
+     Han Shuai.        A cat is a cat (not a dog!): Unravel-                   36:78723–78747, 2023. 7, 8
+     ing information mix-ups in text-to-image encoders through            [18] Dongzhi Jiang, Guanglu Song, Xiaoshi Wu, Renrui Zhang,
+     causal analysis and embedding optimization. arXiv preprint                Dazhong Shen, Zhuofan Zong, Yu Liu, and Hongsheng Li.
+     arXiv:2410.00321, 2024. 2, 3                                              Comat: Aligning text-to-image diffusion model with image-
+ [6] Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze                  to-text concept matching. Advances in Neural Information
+     Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo,                         Processing Systems, 37:76177–76209, 2024. 8
+     Huchuan Lu, and Zhenguo Li. Pixart-α: Fast training of dif-          [19] Dong Jing, Xiaolong He, Yutian Luo, Nanyi Fei, Guoxing
+     fusion transformer for photorealistic text-to-image synthesis,            Yang, Wei Wei, Huiwen Zhao, and Zhiwu Lu. FineCLIP:
+     2023. 2                                                                   Self-distilled region-based CLIP for better fine-grained un-
+ [7] Kevin Clark and Priyank Jaini. Text-to-image diffusion mod-               derstanding. In The Thirty-eighth Annual Conference on
+     els are zero shot classifiers. Advances in Neural Information             Neural Information Processing Systems, 2024. 2, 3
+     Processing Systems, 36:58921–58937, 2023. 1, 2                       [20] Evelina Leivada, Elliot Murphy, and Gary Marcus. Dall-e 2
+ [8] Kevin Clark, Urvashi Khandelwal, Omer Levy, and Christo-                  fails to reliably capture common syntactic processes, 2022.
+     pher D Manning. What does bert look at? an analysis of                    2
+     bert’s attention. arXiv preprint arXiv:1906.04341, 2019. 4           [21] Senmao Li, Joost van de Weijer, Taihang Hu, Fahad Shah-
+ [9] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim                     baz Khan, Qibin Hou, Yaxing Wang, and Jian Yang. Get
+     Entezari, Jonas M”uller, Harry Saini, Yam Levi, Dominik                   what you want, not what you don’t: Image content sup-
+     Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling recti-                pression for text-to-image diffusion models. arXiv preprint
+     fied flow transformers for high-resolution image synthesis.               arXiv:2402.05375, 2024. 6
+     In Forty-first international conference on machine learning,         [22] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jian-
+     2024. 1, 2, 3                                                             wei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee.
+[10] Kawin Ethayarajh. How contextual are contextualized word                  Gligen: Open-set grounded text-to-image generation. CVPR,
+     representations. Comparing the geometry of BERT, ELMo,                    2023. 2
+     and GPT-2 Embeddings, 2, 2019. 4                                     [23] Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng
+[11] Weixi Feng, Xuehai He, Tsu-Jui Fu, Varun Jampani, Arjun                   Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Wanli
+     Akula, Pradyumna Narayana, Sugato Basu, Xin Eric Wang,                    Ouyang. Flow-grpo: Training flow matching models via on-
+     and William Yang Wang. Training-free structured diffusion                 line rl, 2025. 3
+
+
+                                                                      9
+[24] Tao Liu, Kai Wang, Senmao Li, Joost van de Weijer, Fa-              [35] Chitwan Saharia, William Chan, Saurabh Saxena, Lala
+     had Shahbaz Khan, Shiqi Yang, Yaxing Wang, Jian Yang,                    Li, Jay Whang, Emily Denton, Seyed Kamyar Seyed
+     and Ming-Ming Cheng. One-prompt-one-story: Free-lunch                    Ghasemipour, Burcu Karagol Ayan, S. Sara Mahdavi,
+     consistent text-to-image generation using a single prompt,               Rapha Gontijo Lopes, Tim Salimans, Jonathan Ho, David J
+     2025. 6                                                                  Fleet, and Mohammad Norouzi. Photorealistic text-to-image
+[25] Zhengyao Lv, Tianlin Pan, Chenyang Si, Zhaoxi Chen,                      diffusion models with deep language understanding, 2022.
+     Wangmeng Zuo, Ziwei Liu, and Kwan-Yee K Wong. Re-                        1, 2
+     thinking cross-modal interaction in multimodal diffusion            [36] Hoigi Seo, Junseo Bang, Haechang Lee, Joohoon Lee,
+     transformers. In 2025 IEEE/CVF International Conference                  Byung Hyun Lee, and Se Young Chun. On geometri-
+     on Computer Vision (ICCV), pages 5934–5943. IEEE, 2025.                  cal properties of text token embeddings for strong seman-
+     2, 8                                                                     tic binding in text-to-image generation. arXiv preprint
+[26] Tuna Han Salih Meral, Enis Simsar, Federico Tombari, and                 arXiv:2503.23011, 2025. 3, 8
+     Pinar Yanardag. Conform: Contrast is all you need for high-         [37] Yingtian Tang, Yutaro Yamada, Yoyo Zhang, and Ilker
+     fidelity text-to-image diffusion models. In Proceedings of               Yildirim. When are lemons purple? the concept association
+     the IEEE/CVF Conference on Computer Vision and Pattern                   bias of vision-language models. In Proceedings of the 2023
+     Recognition, pages 9005–9014, 2024. 2, 3                                 Conference on Empirical Methods in Natural Language Pro-
+[27] Alexander Quinn Nichol, Prafulla Dhariwal, Aditya Ramesh,                cessing, pages 14333–14348, 2023. 2, 3
+     Pranav Shyam, Pamela Mishkin, Bob Mcgrew, Ilya                      [38] Michael Toker, Ido Galil, Hadas Orgad, Rinon Gal, Yoad
+     Sutskever, and Mark Chen. GLIDE: Towards photorealis-                    Tewel, Gal Chechik, and Yonatan Belinkov. Padding tone: A
+     tic image generation and editing with text-guided diffusion              mechanistic analysis of padding tokens in t2i models, 2025.
+     models. In Proceedings of the 39th International Conference              5
+     on Machine Learning, pages 16784–16804. PMLR, 2022. 2               [39] Matthew Trager, Pramuditha Perera, Luca Zancato, Alessan-
+[28] Dustin Podell, Zion English, Kyle Lacey, Andreas                         dro Achille, Parminder Bhatia, and Stefano Soatto. Lin-
+     Blattmann, Tim Dockhorn, Jonas M”uller, Joe Penna, and                   ear spaces of meanings: compositional structures in vision-
+     Robin Rombach. Sdxl: Improving latent diffusion mod-                     language models. In Proceedings of the IEEE/CVF Interna-
+     els for high-resolution image synthesis. arXiv preprint                  tional Conference on Computer Vision, pages 15395–15404,
+     arXiv:2307.01952, 2023. 1, 2, 3, 8                                       2023. 7
+[29] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya                  [40] Jesse Vig. A multiscale visualization of attention in the trans-
+     Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,                    former model. arXiv preprint arXiv:1906.05714, 2019. 4
+     Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning          [41] Jesse Vig and Yonatan Belinkov. Analyzing the structure of
+     transferable visual models from natural language supervi-                attention in a transformer language model. arXiv preprint
+     sion. In International conference on machine learning, pages             arXiv:1906.04284, 2019. 4
+     8748–8763. PmLR, 2021. 2, 3                                         [42] Zeyue Xue, Jie Wu, Yu Gao, Fangyuan Kong, Lingting
+[30] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu,                Zhu, Mengzhao Chen, Zhiheng Liu, Wei Liu, Qiushan Guo,
+     and Mark Chen. Hierarchical text-conditional image gener-                Weilin Huang, and Ping Luo. Dancegrpo: Unleashing grpo
+     ation with clip latents. arXiv preprint arXiv:2204.06125, 1              on visual generation, 2025. 3
+     (2):3, 2022. 1, 2                                                   [43] Mert Yuksekgonul, Federico Bianchi, Pratyusha Kalluri,
+[31] Royi Rassin and Yoav Ravfogel, Shauli andGoldberg.                       Dan Jurafsky, and James Zou. When and why vision-
+     DALLE-2 is seeing double: Flaws in word-to-concept map-                  language models behave like bags-of-words, and what to do
+     ping in Text2Image models. In Proceedings of the Fifth                   about it? arXiv preprint arXiv:2210.01936, 2022. 2, 3
+     BlackboxNLP Workshop on Analyzing and Interpreting Neu-             [44] Arman Zarei, Keivan Rezaei, Samyadeep Basu, Mehrdad
+     ral Networks for NLP, pages 335–345, Abu Dhabi, United                   Saberi, Mazda Moayeri, Priyatham Kattakinda, and Soheil
+     Arab Emirates (Hybrid), 2022. Association for Computa-                   Feizi. Improving compositional attribute binding in text-
+     tional Linguistics. 2                                                    to-image generative models via enhanced text embeddings,
+[32] Royi Rassin, Eran Hirsch, Daniel Glickman, Shauli Rav-                   2025. 2, 3
+     fogel, Yoav Goldberg, and Gal Chechik. Linguistic bind-             [45] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding
+     ing in diffusion models: Enhancing attribute correspondence              conditional control to text-to-image diffusion models. In
+     through attention map alignment. Advances in Neural Infor-               Proceedings of the IEEE/CVF International Conference on
+     mation Processing Systems, 36:3536–3559, 2023. 2, 8                      Computer Vision (ICCV), pages 3836–3847, 2023. 2
+[33] Robin Rombach, Andreas Blattmann, Dominik Lorenz,                   [46] Yasi Zhang, Peiyu Yu, and Ying Nian Wu.                 Object-
+     Patrick Esser, and Bj”orn Ommer. High-resolution image                   conditioned energy-based attention map alignment in text-to-
+     synthesis with latent diffusion models. In Proceedings of                image diffusion models. In European Conference on Com-
+     the IEEE/CVF conference on computer vision and pattern                   puter Vision, pages 55–71. Springer, 2024. 2
+     recognition, pages 10684–10695, 2022. 1, 2, 3                       [47] Chenyi Zhuang, Ying Hu, and Pan Gao. Magnet: We never
+[34] Olivier Roy and Martin Vetterli. The effective rank: A mea-              know how text-to-image diffusion models work, until we
+     sure of effective dimensionality. In 2007 15th European sig-             learn how vision-language models function. arXiv preprint
+     nal processing conference, pages 606–610. IEEE, 2007. 4                  arXiv:2409.19967, 2024. 2, 5, 8
+
+
+                                                                    10
+

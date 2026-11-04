@@ -1,0 +1,1233 @@
+                                                                         Alignment-Guided Score Matching
+                                                                  for Text-to-Image Alignment in Diffusion Models
+
+
+                                                                    Jaa-Yeon Lee * 1 Yeobin Hong * 1 Taesung Kwon 1 Jong Chul Ye 1
+arXiv:2605.30038v1 [cs.LG] 28 May 2026
+
+
+
+
+                                         Figure 1. Representative results for text-to-image generation and image editing. Our alignment-guided fine-tuning improves semantic
+                                         consistency between text and image by training soft tokens within the score-matching framework.
+                                                                  Abstract                                        contrastive learning can effectively improve text-
+                                              Diffusion models generate highly realistic images                   image representation alignment, outperforming
+                                              but often struggle with precise text–image align-                   standard parameter-efficient fine-tuning baselines.
+                                              ment. While recent post-training methods im-                        However, the contrastive formulation can ex-
+                                              prove alignment using external rewards or human                     cessively penalize negative pairs, which mani-
+                                              preference signals, their performance heavily de-                   fests as characteristic failure cases such as over-
+                                              pends on reward quality and does not directly ad-                   counting and repetition. To address this issue, we
+                                              dress alignment within the diffusion process itself.                propose a lightweight, reward-free post-training
+                                              Recent reward-free approaches such as SoftREPA                      method that refines soft tokens by integrating
+                                              demonstrate that optimizing soft text tokens via                    contrastive alignment guidance directly into the
+                                                                                                                  score-matching objective of diffusion models.
+                                           *
+                                             Equal contribution 1 Graduate School of AI, KAIST, South             By assigning alignment directions at the score
+                                         Korea. Correspondence to: Jong Chul Ye <jong.ye@kaist.ac.kr>.            level, our approach mitigates these limitations and
+                                                                                                                  yields more coherent and semantically faithful
+                                         Proceedings of the 43 rd International Conference on Machine
+                                         Learning, Seoul, South Korea. PMLR 306, 2026. Copyright 2026             generations. Experiments show that our method
+                                         by the author(s).                                                        matches SoftREPA while substantially improving
+
+                                                                                                         1
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+     its failure cases, achieving over 35% improve-                   explicitly guiding both positive and negative text–image
+     ment in counting accuracy on the GenEval bench-                  pairs within the score-matching objective. We formu-
+     mark. Our method is seamlessly applicable to                     late text–image alignment as preference learning under a
+     existing diffusion backbones (SD1.5, SDXL, and                   Plackett–Luce (PL) model (Luce et al., 1959), where align-
+     SD3), and is complementary to existing RL-based                  ment preferences are derived from the diffusion model’s
+     diffusion post-training methods. Project page:                   intrinsic log-likelihood without external rewards. Unlike
+     https://jaayeon.github.io/AGSM/                                  prior approaches that penalize negative pairs implicitly, our
+                                                                      method assigns explicit score-level guidance using separate
+                                                                      soft tokens (ψ + , ψ − ) for positive and negative semantic
+1. Introduction                                                       regions, preventing off-manifold drift and preserving gener-
+                                                                      ative fidelity.
+Diffusion models have achieved remarkable progress in
+high-fidelity image generation (Peebles & Xie, 2023; Esser            Our main contributions are as follows:
+et al., 2024; Podell et al., 2023). To further align their gen-
+erative behavior with desired outcomes, recent work has                  • Reward-free Plackett-Luce Formulation: We formu-
+explored post-training techniques such as policy gradient                  late text-image alignment as reward fine-tuning over
+and preference optimization (Black et al., 2023; Xu et al.,                diffusion scores. Employing a PL model, we enable a
+2023; Clark et al., 2023; Fan et al., 2023; Wallace et al.,                reward-free post-training objective that leverages the
+2024). However, most existing approaches rely on human                     model’s internal priors.
+preference annotations (Wallace et al., 2024; Karthik et al.,
+2024; Zhu et al., 2025; Liang et al., 2025) or externally                • Stability via Explicit Negative Guidance: We miti-
+designed reward models (Fan et al., 2023; Black et al., 2023;              gate the unbounded divergence of prior contrastive loss
+Xu et al., 2023; Clark et al., 2023). As a result, their ef-               by assigning explicit, bounded preference directions
+fectiveness depends critically on reward quality and data                  to negative samples, preventing the failure cases of
+availability, leaving the intrinsic text–image alignment sig-              SoftREPA.
+nals within diffusion models underexplored.
+                                                                         • Efficiency and Versatility: The proposed approach
+Recent studies have begun to revisit text–image alignment                  is lightweight, model-agnostic, and complementary to
+by leveraging diffusion models’ internal representations                   existing RL-based diffusion post-training methods.
+and score-matching dynamics (Xian et al., 2025; Lee et al.,
+2025a). In particular, SoftREPA (Lee et al., 2025a) demon-
+strated the potential of optimizing lightweight soft text to-
+                                                                      2. Preliminaries
+kens to maximize the mutual information between modal-                SoftREPA SoftREPA (Lee et al., 2025a) fine-tunes dif-
+ities by leveraging the diffusion score-matching loss as a            fusion models by aligning text and image representations
+proxy for alignment. However, we identify a fundamental in-           through contrastive learning. Given a soft text token s and
+stability in this contrastive formulation: while it minimizes         a paired sample (x, c), the similarity score is defined as
+score-matching loss for positive pairs, it simultaneously
+maximizes it for negative pairs. This adversarial pushing of-                                  h ∥ϵ (x , t, c, s) − ϵ ∥2 i
+                                                                                                    θ  t              t 2
+ten forces the soft tokens to represent off-manifold regions,          ℓ̃(x, c, s) = exp − Et,ϵ                             , (1)
+                                                                                                           τ (t)
+manifesting in characteristic failure cases such as object
+repetition, over-counting, and semantic incoherence.                  where ϵθ is the noise prediction of the diffusion model, τ (t)
+                                                                      denotes a temperature-scaled time weighting, and ϵt is the
+In parallel, recent advances in diffusion-based preference
+                                                                      Gaussian noise at step t. In practice, SoftREPA approxi-
+optimization provide a promising direction. Diffusion-DPO
+                                                                      mates the expectation with a Monte Carlo estimate using
+(Direct Preference Optimization) (Wallace et al., 2024) for-
+                                                                      sampled t and ϵ during training. The soft-token training
+mulates preference alignment within the diffusion objective
+                                                                      objective adopts a contrastive form:
+using the Bradley–Terry model (Bradley & Terry, 1952).
+DSPO (Direct Score Preference Optimization) (Zhu et al.,                                                              
+                                                                                                      exp ℓ̃(x, c, s)
+2025) further integrates preference learning into the score-              L(s) = −E(x,c)∼pdata , log P                  ,      (2)
+                                                                                                                   j
+matching framework. These approaches indicate that mod-                             t∼U (0,1),        j exp ℓ̃(x, c , s)
+                                                                                       ϵ∼N (0,I)
+eling preferences at the score level enables stable alignment
+while preserving the underlying diffusion dynamics.
+                                                                      where cj denotes negative text pairs within the minibatch.
+Building on these insights, we propose Alignment-Guided               This objective optimizes the soft token s to maximize
+Score Matching, a reward-free post-training framework op-             text–image representation alignment by increasing the mu-
+timizing soft tokens that addresses contrastive instability by        tual information between the two modalities.
+
+                                                                  2
+                       Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+DSPO Direct          Score     Preference     Optimization               3.1. Alignment Reward via Plackett–Luce Modeling
+(DSPO) (Zhu et al., 2025) fine-tunes diffusion mod-
+                                                                         To define the probability that an image xt is aligned with a
+els by directly incorporating human preference signals into
+                                                                         specific text c among a set of candidates {ci }, we employ
+the score-matching framework. Given a text-conditioned
+                                                                         the Plackett-Luce (PL) model (Luce et al., 1959). This
+diffusion model pθ (xt |c) and a preference pair (xt , xlt , c),
+                                                                         formulation generalizes the pairwise Bradley-Terry model
+human preference is modeled by the Bradley–Terry
+                                                                         used in Eq. (3) to a multi-class preference framework:
+formulation (Bradley & Terry, 1952):
+                                                                                                      exp(r(xt , c))
+            p(y|xt , c) = σ r(xt , c) − r(xlt , c) ,
+                                                  
+                                                               (3)                   p(z=1|xt , c) = P              i
+                                                                                                                        ,              (7)
+                                                                                                      i exp(r(xt , c ))
+
+where p(y|xt , c) denotes the probability that (xt , c) is pre-          where z serves as a binary random variable: z=1 indicates
+ferred to (xlt , c) and r(xt , c) is an implicit reward estimated        the pair (xt , c) is aligned and z=0 indicates opposite.
+from DiffusionDPO (Wallace et al., 2024). The DSPO ob-                   Inspired by SoftREPA (Lee et al., 2025a), we define an
+jective aligns the diffusion score with the human-preferred              implicit alignment reward as the expected conditional log-
+score,∇xt log p(xt |c, y) using Bayes’ rule, as                          likelihood of the model reverse transition under DDPM (Ho
+                                                                         et al., 2020) posterior:
+min∥∇ log pθ (xt |c)−(∇ log p(xt |c)+γ∇ log p(y|xt , c)∥22
+ θ
+                                                                           r(xt , c) := λt Eq(xt−1 |xt ,x0 ) [log pθ (xt−1 | xt , c)] , (8)
+                                                       (4)
+where γ controls the preference strength. The implicit re-               where λt controls the reward scale. Thus, higher reward
+ward can be expressed as a log-density ratio between the                 is assigned to text–image pairs whose reverse transition is
+current and reference models:                                            better predicted under condition c, without requiring an
+                                                                         external reward model.
+                                   pθ (xt−1 |xt , c)
+              r(xt , c) = λt log                       .       (5)
+                                   pref (xt−1 |xt , c)
+                                                                         3.2. Alignment-Guided Score Matching
+Combining Eq. (3) and Eq. (5) into Eq. (4), DSPO training                Target Distribution. To maximize the alignment of the
+objective becomes:                                                       joint pdf of xt and c, we divide data into positive and nega-
+                                                                         tive subsets (D+ , D− ) using a binary random variable z. D+
+                                                           2
+     min ϵθ,t − ϵt − λt w(xt , xlt , c)(ϵθ,t − ϵref,t ) 2 ,    (6)       consists of aligned text–image pairs (z=1), whereas D−
+      θ
+                                                                         consists of mismatched pairs (z=0). The goal is to increase
+                                                                        the probability in aligned regions while suppressing it in the
+where w(xt , xlt , c) = 1 − σ r(xt , c) − r(xlt , c) is a pref-
+                                                                         mismatched regions through explicit score modification.
+erence score-based weighting term that modulates the guid-
+ance induced by the discrepancy between the online and                   The corresponding tilted target conditional distributions are
+reference scores.                                                        defined as
+                                                                                                                                      +
+                                                                         p+
+                                                                          t (xt |c) := pt (xt |c, z=1) ∝ pt (xt |c) p(z=1|xt , c)
+                                                                                                                                 γ
+                                                                                                                                   ,
+3. Alignment-Guided Score Matching                                                                                                        −
+                                                                         p−
+                                                                          t (xt |c) := pt (xt |c, z=0) ∝ pt (xt |c) p(z=1|xt , c)
+                                                                                                                                 −γ
+
+Since the similarity score in Eq. (1) is a strictly decreas-                                                                       (9)
+ing function, minimizing Eq. (2) may lead to increasing
+the score matching loss ∥ϵθ (xt , t, cj , s) − ϵt ∥22 for negative       where γ + and γ − regulate the influence of alignment reward
+pairs cj . Therefore, the SoftREPA objective does not con-               on the resulting posterior. This formulation is closely related
+strain negative pairs to remain on the diffusion manifold,               to classifier-free guidance (CFG) (Ho & Salimans, 2022),
+allowing unbounded divergence of the denoising error.                    which tilts the sampling distribution with weighted poste-
+To circumvent the instabilities of contrastive pushing, we               rior probability, pθ (x|c)pθ (c|xt )w . Similarly, the negative
+propose a guidance-based framework that treats text align-               branch acts as a repulsive tilting term analogous to negative
+ment as a bounded preference optimization problem. Our                   prompting (Gandikota et al., 2023). The resulting inverse
+approach consists of three components: (i) a normalized                  weighting serves as a direction-preserving surrogate for the
+alignment reward derived via a Plackett-Luce formulation                 Bayes-consistent negative guidance term p(z=0|xt , c), dif-
+(Section 3.1), (ii) a modified score-matching objective that             fering only by a positive scaling factor (Appendix A).
+transforms the target score for both positive and negative               A unified expression of the modified target distribution is
+pairs (Section 3.2), and (iii) a dual-token training scheme
+                                                                                                                       −
+that explicitly separates positive and negative guidance with              p̃t (xt |c, z) := 1{z=1}p+
+                                                                                                    t (xt |c) + 1{z=0}pt (xt |c).
+stability analysis (Section 3.3).                                                                                              (10)
+
+                                                                     3
+                       Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+
+
+
+Figure 2. Alignment-Guided Score Matching improves text–image alignment by increasing alignment rewards for positive pairs and
+                                                                −                                                                −
+decreasing those for negative pairs. Noise predictions ϵ+                                                                  +
+                                                        θ and ϵθ are conditioned on positive and negative soft tokens (ψ , ψ ). Target
+                                                                                                                −
+noise is adjusted using alignment guidance derived from implicit-reward–weighted EMA predictions (ϵ̂+    θ , ϵ̂ θ ). For clarity, the figure
+shows a single negative pair, while multiple negatives are used during training.
+
+
+Taking the gradient with respect to xt gives the new target               Algorithm 1 Alignment-Guided Score Matching
+score:                                                                    Require: Dataset D; backbone θ; soft tokens ψ ± ; EMA soft
+                                                                              tokens ψ̂ ± ; guidance scales γ ±
+∇ log p̃t (xt |c, z) = ∇ log pt (xt |c)+γz ∇ log p(z=1|xt , c),            1: while not converged do
+                                                        (11)               2:     ▷ Sample positive and negative pairs
+                                                                                                                                −
+where γz = γ + 1{z=1} − γ − 1{z=0}. The first term cor-                    3:     (xi0 , cj )B              +
+                                                                                             i,j=1 ∼ D {D if i = j, D if i̸=j}
+
+responds to the standard diffusion score, while the second                 4:     t ∼ U (0, 1), ϵ ∼ N (0, I)
+                                                                           5:     ▷ use√  same t and√ϵ for all pairs
+term explicitly pushes samples in the direction of higher                  6:     xit = ᾱt xi0 + (    1 − ᾱt ϵ, ∀i
+reward gradients when it comes to positive pairs, pushes                                                      +
+                                                                                                                        ψ̂ +
+                                                                                     (i,j)   (i,j)       (ϵψt,θ (·), ϵt,θ (·)),     i=j
+samples in the opposite direction when it comes to nega-                   7:     (ϵpred , ϵema ) ←           −
+                                                                                                                         ψ̂ −
+                                                                                                         (ϵψ    (·),   ϵ      (·)), i ̸= j
+tive pairs, encouraging xt to move toward better-aligned                                                    t,θ          t,θ
+
+image–text regions.                                                                                    where (·) = (xit , cj )
+                                                                                                               (i,j)
+                                                                                  wi,j = Softmaxj − ∥ϵema − ϵ∥22 {Eq.14, Eq.7}
+                                                                                                                                
+                                                                           8:
+                                                                                     (i,j)      (i,j)  P              (i,k)
+Training Objective. We train learnable soft tokens ψz to                   9:     ∆ψ̂ = ϵema − k wi,k ϵema {Eq.13}
+                                                                                                                     (i,j)
+                                                                                                    ( +
+match the new target score:                                                         (i,j)             +γ Ã(t)∆ψ̂ , i = j
+                                                                          10:     ϵtgt ← ϵ +                         (i,j)
+        h                                                     i                                       −γ − Ã(t)∆ψ̂ , i ̸= j
+  min E w(t)∥∇ log pψ    z
+                       t,θ (x t |c) − ∇ log p̃t (x t |c, z)∥2
+                                                            2 ,           11:    ▷ Update ψ ± and ψ̂ ±
+   ψz
+                                                                                                    (i,j)  (i,j) 2
+                                                                                 L(ψ ± ) ∝
+                                                                                           P
+                                                          (12)            12:                 i,j ϵpred − ϵtgt   2
+where w(t) is a time-dependent weighting function. We de-                 13: end while
+note by pψ
+         t,θ (xt |c) the diffusion model with frozen backbone
+           z
+
+
+θ conditioned on soft token ψz .                                          2020), we instantiate the alignment reward using denoising
+To compute the gradient term in Eq. (11), we differentiate                error:
+the PL likelihood in Eq. (7) with respect to xt :                                                 A(t) ψ̂z
+                                                                                    r(xt , c) = −      ∥ϵθ (xt , t, c) − ϵ∥22 ,      (14)
+                                           X                                                        2
+  ∇ log p(z=1|xt , c) = ∇r(xt , c) −             wi ∇r(xt , ci ),                                 Qt                            λt βt
+                                             i                            where αt =1−βt , ᾱt = s=1 αs , and A(t) = αt (1−        ᾱt−1 )
+                                                               (13)       (see Appendix B for details). We compute the reward using
+                                                                          EMA-updated soft tokens(ψ̂z ) to stabilize the alignment
+                            i
+where wi = Pexp(r(x     t ,c ))
+                              j  represents the normalized re-            signal. A lower denoising error corresponds to a higher re-
+                j exp(r(xt ,c ))
+                                                                          ward, directly coupling text–image alignment with diffusion
+ward weight over textual alternatives. This equation shows
+                                                                          consistency.
+that the gradient of the PL likelihood compares the reward
+gradient of the current pair (xt , c) against the weighted av-            By substituting Eq. (11), Eq. (14), and Eq. (13) into the
+erage of competing candidates, producing a contrast signal                score-matching objective in Eq. (12), we obtain the final
+for alignment.                                                            Alignment-Guided Score Matching loss:
+                                                                                 h                                             i
+Since diffusion models parameterize the reverse denoising
+                                                                                                                X
+                                                                           min E ∥ϵψ                       ψ̂z
+                                                                                     t,θ − (ϵt + γz Ã(t)(ϵt,θ −
+                                                                                       z
+                                                                                                                  wi ϵψ̂z ,i 2
+                                                                                                                      t,θ ))∥ . (15)
+process using a neural network as in DDPM (Ho et al.,                       ψz
+                                                                                                                   i
+
+                                                                      4
+                             Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+Here, ϵψ̂ z ,i
+        t,θ denotes the denoising prediction conditioned on
+                                                                            unbounded growth of negative diffusion losses. In practice,
+the i-th text candidate ci . We omit  the timestep weighting                this leads to substantially more stable training dynamics
+                                 √
+                               βt 1−ᾱt
+for brevity, with Ã(t) = αλtt (1−                                          compared to SoftREPA, which exhibits gradual degrada-
+                                  ᾱt−1 ) . A comprehensive
+                                                                            tion without early-stopping (Training Dynamics Analysis in
+derivation is provided in Appendix C.
+                                                                            Section 4).
+For the flow model, the Alignment-Guided Score Matching
+loss can be formulated as                                                   4. Experiments
+         h                                              i
+                                             ψ̂z ,i  2
+             ψz                 ψ̂z
+                                      X
+  min E vt,θ    − vt + γz B(t) vt,θ −    wi vt,θ      2
+                                                         ,                  Implementation Details. We conducted experiments on
+   ψz
+                                                   i
+                                                                            SD1.5, SDXL, and SD3. For SD1.5 and SDXL, we trained
+                                                                 (16)
+                                                                            soft tokens applied to the Down and Middle blocks of the
+which closely resembles the alignment-guided loss for the                   UNet backbone, with 8 (4 positive and 4 negative) soft text
+diffusion model (Eq. (15)). A detailed derivation is given in               tokens. For SD3, we trained 8 soft text tokens on the upper 5
+Appendix D.                                                                 transformer layers, which is the same configuration as Soft-
+                                                                            REPA. The batch size was set to 16, which makes 3 negative
+3.3. Negative Sample Optimization and its Stability                         prompts for each text-image pair across all models. Regard-
+                                                                            ing SoftREPA, we used official checkpoints trained with
+Dual-Token Parameterization. To effectively capture                         larger negative pools: 7 negatives per positive (batch 64) for
+both generative capability and alignment performance, we                    SD1.5/SDXL, and 3 negatives (batch 16) for SD3. During
+decouple the positive and negative alignment guidance                       sampling, we dropped the negative soft tokens (ψ − ) and
+through separate soft token optimization. Separate soft                     used only the positive soft tokens (ψ + ) for both conditional
+tokens (ψ + and ψ − ) are updated for the corresponding pos-                and unconditional generation. The positive and negative
+itive and negative data pairs (Figure 2). Concretely, the                   guidance scales (γ + , γ − ) were set to (1, 1) for SD1.5 and
+resulting objective Eq. (15) can be rewritten as:                           SDXL, and (1, 0.1) for SD3. For simplicity, we set the time-
+                    h     +                        2i                     dependent reward scale λt so that Ã(t) = 1 during training.
+    min        E        ϵψ
+                         t,θ − ϵ t +γ +
+                                        Ã(t) ∆ψ̂z
+  ψ + ,ψ −    (x,c)∼D +                              2                      Further implementation details are provided in Appendix G.
+                               −
+                         h                              2i 
+        +       E            ϵψ          −
+                              t,θ − ϵt −γ Ã(t) ∆ψ̂z     2
+                                                             ,   (17)
+             (x,c)∼D −                                                      Training Dynamics Analysis. We further analyze train-
+                                                                            ing stability against SoftREPA by tracking validation Im-
+where ∆ψ̂z = ϵψ̂               ψ̂z ,i
+                      P
+                t,θ −
+                  z
+                         i wi ϵt,θ . Decoupling the parame-                 ageReward throughout post-training. As shown in Figure 4,
+ters provides a mechanism to partition the alignment and                    SoftREPA reaches peak ImageReward at early iterations and
+contrastive signals, allowing for targeted semantic refine-                 then substantially degrades, whereas our method maintains
+ment without the risk of over-optimizing the negative pairs                 stable performance over longer training. In particular, Soft-
+at the expense of generative fidelity. The complete training                REPA’s loss continues to decrease even when ImageReward
+algorithm is summarized in Algorithm 1.                                     drops, indicating over-optimization of the contrastive objec-
+                                                                            tive and the need for heuristic early stopping. By contrast,
+Stability of Alignment Guidance. Unlike SoftREPA,                           our PL-based score-matching objective uses a bounded and
+whose log-sum-exp contrastive objective admits descent di-                  normalized correction, which reduces late-stage deteriora-
+rections that inflate negative denoising errors, our alignment-             tion from amplified negative signals.
+guided objective introduces a normalized preference correc-
+tion within score matching. When the matched candidate
+                                                                            Text to Image Generation. We conducted text-to-image
+dominates in Plackett–Luce (PL) form, ∆ψ̂z becomes small
+                                                                            generation experiments comparing our method with the
+so that the target score reduces toward the standard denois-
+                                                                            baseline and SoftREPA (Lee et al., 2025a) on SD1.5, SDXL,
+ing objective. For negative pairs, ∆ψ̂z contributes only
+                                                                            and SD3. All models were trained on the COCO-train
+through a normalized weighted correction term.
+                                                                            dataset (Lin et al., 2014) and evaluated on the COCO-val
+                         term γz ∇xt log p(z|xt , c) takes
+Concretely, the alignmentP                                                  and GenEval benchmarks (Ghosh et al., 2023).
+the PL form ∇r(xt , c) − i wi ∇r(xt , ci ), whose norm is
+                                                                            In Table 1, our method achieves improved text–image align-
+bounded by a weighted combination of reward gradients,
+                                                                            ment and image quality compared to the baselines. For
+                                                                            the GenEval benchmark, we additionally compare against
+                                    X
+  ∇ log p(z|xt , c) ≤ ∥∇r(xt , c)∥+      wi ∥∇r(xt , ci )∥.
+                                               i                            CaPO (Lee et al., 2025b) and RankDPO (Karthik et al.,
+                                                        (18)                2024), recent preference-based post-training approaches.
+With the reward instantiated as a scaled denoising error, the               Notably, our method significantly improves counting accu-
+resulting correction remains finite and does not encourage                  racy by +35%, effectively mitigating the over-emphasizing
+
+                                                                        5
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+
+
+
+Figure 3. Qualitative comparison of text-to-image generation among SD3, SoftREPA, and our method. Prompts are sampled from the
+COCO validation set. Compared to SD3 and SoftREPA, our method produces images that better reflect the input text, while reducing
+common failure modes such as object repetition of SoftREPA.
+
+
+
+
+                                                                      Figure 5. Comparison between the baseline, SoftREPA, and our
+Figure 4. Training stability comparison between AGSM (Ours)           method on image generation (ImageReward vs. FID) and image
+and SoftREPA. SoftREPA’s validation ImageReward degrades de-          editing (CLIP vs. LPIPS) tasks. Optimal performance corresponds
+spite decreasing training loss, while our method remains stable       to the top-left region of the plot.
+throughout the later stages of training.
+
+                                                                      Text Guided Image Editing. We evaluate our method
+behavior observed in prior methods.
+                                                                      on PIE-Bench (Ju et al., 2023), a standard benchmark con-
+In Figure 5-(left), we evaluate performance along two com-            taining 700 images, containing source, target prompts and
+plementary axes: human preference metrics (ImageReward)               background mask. We compare our method against several
+and image quality and diversity (FID). While a trade-off              training-free text-based editing baselines for SD1.5 and SD3.
+exists between these metrics, our method consistently im-             For SD1.5, we include PnP (Tumanyan et al., 2023) and
+proves preference-aligned performance over the baseline               MasaCtrl (Cao et al., 2023), evaluated with both direct (Ju
+while maintaining substantially better FID than SoftREPA.             et al., 2023) and DDIM (Song et al., 2021a) inversion. For
+Detailed quantitative results are provided in Appendix E.             SD3, we select methods representing different strategies:
+Figure 3 presents qualitative comparisons among SD3, Soft-            RF-Inversion (Rout et al., 2024) for an inversion-based ap-
+REPA (Lee et al., 2025a), and our method, showing that our            proach and FlowEdit (Kulikov et al., 2024), FlowAlign (Kim
+approach reduces redundant object generation and adheres              et al., 2025) for inversion-free methods. Detailed experi-
+more faithfully to the given text conditions.                         mental configurations are available in Appendix F.
+
+                                                                  6
+                       Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+                                                                           COCO val5K
+                         Model                       ImageReward↑             PickScore↑                CLIP↑                HPSv2↑            FID↓
+                          SD1.5                           17.72                    21.47                    26.4              25.08            24.59
+                           Ours                           34.50                    21.59                   27.23              25.66            25.94
+                         SDXL                             75.06                    22.38                   26.76              27.35            24.69
+                          Ours                            84.22                    22.57                   26.86              27.96            24.83
+                          SD3                             94.27                    22.54                   26.30              28.09            31.59
+                          Ours                            103.3                    22.39                   27.00              28.22            34.08
+                                                                            GenEval
+                         Model                 # Trainable Params   Mean↑   Single↑ Two↑          Counting↑        Colors↑   Position↑   Color Attribution↑
+                         SD3                           -            0.68      0.99         0.86     0.56            0.85       0.27            0.55
+                 CaPO (Lee et al., 2025b)             2B            0.71      0.99         0.87     0.63            0.86       0.31            0.59
+              RankDPO (Karthik et al., 2024)          2B            0.74      1.00         0.90     0.72            0.87       0.31            0.66
+               SoftREPA (Lee et al., 2025a)          0.9M           0.70      1.00         0.95     0.29            0.92       0.34            0.68
+                         Ours                        1.8M           0.72      1.00         0.91     0.64            0.89       0.26            0.64
+Table 1. Quantitative evaluation of T2I generation on SD1.5, SDXL, and SD3. Generation quality is evaluated on the COCO-val 5K (Lin
+et al., 2014) and GenEval (Ghosh et al., 2023) benchmark. ImageReward, CLIP, HPS, and LPIPS are scaled by ×102 .
+
+
+
+
+Figure 6. Qualitative comparison of image editing results from baseline methods, SoftREPA, and our method. The proposed method
+demonstrates a superior balance between text alignment and structural consistency.
+
+As shown in Figure 5-(right), we evaluate performance from                           Complementarity with Diffusion RL methods. To fur-
+two complementary perspectives: text alignment (using                                ther compare with other DPO-based methods and examine
+CLIP similarity) and source consistency (using background                            their complementarity with our approach, we conducted
+LPIPS). While a trade-off exists in the two metrics, our                             additional experiments by integrating our pretrained soft
+method demonstrates a consistently superior balance, estab-                          tokens into existing DPO frameworks. While DPO-based
+lishing a Pareto front compared to all baselines. While some                         methods focus on preference alignment, our method targets
+baselines (e.g., FlowEdit, FlowAlign, RF-Inversion) excel                            representation alignment between text and image features
+in source consistency, they struggle to achieve strong text                          by training soft text tokens to modulate the propagated fea-
+alignment. Conversely, SoftREPA (Lee et al., 2025a) often                            tures within a contrastive framework. To demonstrate the
+achieve high CLIP similarity at the expense of source consis-                        complementarity between the two paradigms, we combined
+tency. As shown qualitatively in Figure 6, SoftREPA (Lee                             the pretrained soft tokens with Diffusion-DPO (Wallace
+et al., 2025a) often over-edits or generates artifacts, which                        et al., 2024), SPO (Liang et al., 2025), and InPO (Lu et al.,
+distort the original image structure. Additionally, Table 2                          2025) on SD1.5 and SDXL. As shown in Table 3, this sim-
+provides detailed quantitative results, including human pref-                        ple integration consistently improves performance across all
+erence scores alongside text alignment and structural preser-                        DPO-based baselines. The results suggest that combining
+vation metrics.                                                                      explicit preference alignment with our representation-level
+                                                                                     text-image alignment provides a unified and more robust
+
+
+                                                                               7
+                                    Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+                                                                    Human Preference                       Text Alignment                  Background Preservation
+                                                                   Image            Pick         CLIP/         CLIP/                                LPIPS/
+             Inversion            Method                                  ↑               ↑            ↑             ↑      HPSv2↑      PSNR↑             ↓          SSIM↑
+                                                                  -Reward          -Score        Edited        Whole                                Whole
+               ddim               MasaCtrl                          -13.94          21.03         21.20         24.18        20.27       22.31       14.59           80.41
+               ddim               MasaCtrl + SoftREPA               -12.76          21.05         21.27         24.44        20.27       22.27        14.5           80.27
+   SD1.5
+
+
+
+
+               ddim               MasaCtrl + Ours                    -8.71          21.01         21.86         25.08        20.24       21.60       11.65           79.30
+               direct             MasaCtrl                            4.77          21.39         21.47         24.54        20.53       22.82       12.21           82.02
+               direct             MasaCtrl + SoftREPA                 4.48          21.40         21.49         24.69        20.52       22.77       12.19           81.85
+               direct             MasaCtrl + Ours                    7.79           21.41         22.19         25.53        20.52       21.99        9.87           80.78
+                    -             RF-Inversion                          128.0       22.07         24.17         27.26        20.84       13.10       36.10           57.17
+   SD3
+
+
+
+
+                    -             RF-Inversion + SoftREPA               128.5       21.98         24.70         28.88        20.38       12.80       38.02           56.93
+                    -             RF-Inversion + Ours                   132.3       22.13         24.72         29.07        20.58       12.90       37.17           57.98
+Table 2. Quantitative evaluation of image editing performance of baseline, SoftREPA (Lee et al., 2025a) and our method on PnP (Tumanyan
+et al., 2023), MasaCtrl (Cao et al., 2023), and RF-Inversion (Rout et al., 2024). ImageReward, CLIP, HPS, LPIPS, and SSIM are scaled by
+×102 and Distance is scaled by ×103 .
+
+                                                                                     COCO val5K
+                                   Model                                              ImageReward↑           PickScore↑      CLIP↑     HPSv2↑      FID↓
+                                   Ours                                                       34.50             21.59        27.23      25.66      25.94
+                                   DiffusionDPO (Wallace et al., 2024)                        29.09             21.65        26.52      26.46      27.85
+                                   DiffusionDPO (Wallace et al., 2024) + Ours                 42.47             21.79        27.34      26.28      27.27
+                          SD1.5
+
+
+
+
+                                   SPO (Liang et al., 2025)                                   18.98             21.58        25.83      26.51      33.76
+                                   SPO (Liang et al., 2025) + Ours                            34.86             21.94        26.53      26.92      30.67
+                                   InPO (Lu et al., 2025)                                     62.12             21.83        27.01      28.80      34.47
+                                   InPO (Lu et al., 2025) + Ours                              67.95             22.02        27.37      28.33      33.67
+                                   Ours                                                       84.22             22.57        26.86      27.96      24.83
+                                   DiffusionDPO (Wallace et al., 2024)                        91.67             22.65        27.36      28.90      28.64
+                                   DiffusionDPO (Wallace et al., 2024) + Ours                 93.12             22.73        27.06      28.94      28.18
+                          SDXL
+
+
+
+
+                                   SPO (Liang et al., 2025)                                   96.95             23.20        25.93      30.85      31.84
+                                   SPO (Liang et al., 2025) + Ours                            98.64             23.23        26.07      30.35      31.68
+                                   InPO (Lu et al., 2025)                                     94.05             22.74        26.91      29.54      27.78
+                                   InPO (Lu et al., 2025) + Ours                              96.07             22.81        26.94      29.38      27.33
+Table 3. Quantitative evaluation of comparison and complementarity with other Diffusion-RL methods on COCO-val5K dataset(Lin et al.,
+2014). ImageReward, CLIP, HPS, and LPIPS are scaled by ×102 .
+
+           Tokens        Data       ImageReward↑   PickScore↑   CLIP↑     HPSv2↑   FID↓                    Tokens     ImageReward↑   PickScore↑   CLIP↑    HPSv2↑      FID↓
+  (i)        ψ+          D+               94.79      22.26      26.93      27.81   34.46          (i)     ψ+ , ψ−         84.53        22.18      26.71      27.64     36.47
+ (ii)      shared ψ     D+ , D−           47.33      21.69      25.68      25.82   31.20
+                                                                                                  (ii)   ψ + (Ours)       103.3        22.39      27.00      28.22     34.08
+ (iii)     ψ+ , ψ−      D+ , D−           103.3      22.39      27.00      28.22   34.08
+Table 4. Ablation study on training strategy, including separated                               Table 5. Ablation study on sampling strategy. (i) uses negative
+objectives over positive/negative subsets and soft token parameter-                             tokens for unconditonal prediction in CFG and (ii) samples only
+ization. In Tokens, shared ψ uses a single token set for both D+                                with positive tokens.
+and D− .
+                                                                                                However, when positive and negative guidance are opti-
+approach for enhancing text–image generation quality.
+                                                                                                mized with shared soft tokens, the improvement comes at
+                                                                                                the cost of degraded generative quality. This confirms that
+Ablation Study on Training Strategy. To isolate the ef-                                         AGSM’s gains come from the combination of explicit posi-
+fect of the positive/negative subset training (D+ , D− ) and                                    tive/negative subset training and the structured dual-token
+the dual-token parameterization, we conduct a controlled                                        design.
+ablation while keeping the total number of learnable soft to-
+kens fixed. As shown in Table 4, we compare three variants:
+                                                                                                Ablation Study on Sampling Strategy. We examine sam-
+(i) training only positive soft tokens ψ + on D+ ; (ii) train-
+                                                                                                pling behavior by comparing two strategies: (i) sampling
+ing on both D+ and D− with shared soft tokens, without
+                                                                                                with only positive soft tokens (ψ + ) for both conditional and
+explicitly decoupling positive and negative guidance; and
+                                                                                                unconditional generation; (ii) sampling with positive soft
+(iii) our AGSM, which uses separate soft tokens, ψ + and
+                                                                                                tokens (ψ + ) for conditional prediction and negative soft
+ψ − , for the two subsets.
+                                                                                                tokens (ψ − ) for unconditional prediction. As illustrated in
+As shown in Table 4, the results indicate that using both                                       Table 5, sampling without negative tokens yields notably
+D+ and D− is critical for improving alignment metrics                                           higher image quality, especially better in ImageReward and
+such as ImageReward, PickScore, CLIP, and HPSv2 scores.                                         FID, suggesting that negative-token sampling can overly
+
+                                                                                            8
+                          Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+ γ−           ImageReward↑     PickScore↑   CLIP↑   HPSv2↑   FID↓        for selective finetuning, and DSPO (Zhu et al., 2025) inte-
+ 1                96.71          22.36      26.78    28.22   35.21       grates preference learning into the score-matching objective.
+ 0.5              98.44          22.31      27.02    27.96   33.88
+ 0.1 (Ours)       103.3          22.39      27.00    28.22   34.08
+                                                                         While these approaches focus on human preference opti-
+ 0.05             100.1          22.46      26.95    28.11   33.04       mization, our method instead targets intrinsic text–image
+ 0                94.79          22.26      26.93    27.81   34.46       representation alignment, offering a complementary direc-
+Table 6. Comparison on negative guidance scale on SD3, γ − ∈             tion to DPO-based RL finetuning.
+{0, 0.05, 0.1, 0.5, 1}. γ + is set to 1.
+                                                                         Beyond preference-pair optimization, recent reward-based
+              ImageReward↑    PickScore↑    CLIP↑   HPSv2↑   FID↓        diffusion RL methods optimize text-to-image diffusion mod-
+ BT              29.67           21.52      27.13   25.31    24.76       els using scalar feedback from external reward models (Liu
+ PL (ours)       34.50           21.59      27.23   25.66    25.94       et al., 2026; Zheng et al., 2025). DiffusionNFT (Zheng et al.,
+Table 7. Comparison of loss objective between Bradley-Terry (BT)         2025) adapts Negative-aware Fine-Tuning (NFT) (Chen
+and Plackett-Luce(PL) model. BT consists of pairwise positive-
+                                                                         et al., 2025) to diffusion models by using negative policy
+negative components, and PT generalizes BT into multi-negative
+components.                                                              for policy optimization. Unlike DiffusionNFT, which de-
+                                                                         fines implicit positive and negative samples through external
+suppress important visual information, degrading fidelity                rewards, AGSM derives them from intrinsic text–image rep-
+and diversity. We normalize all metrics to a consistent scale            resentation alignment and injects the resulting guidance
+for comparison. Additional qualitative examples can be                   directly into score matching.
+found in Appendix H.
+                                                                         6. Conclusion
+The Sensitivity on the Negative Guidance Scale. We fur-                  We introduced Alignment-Guided Score Matching, a
+ther analyze the sensitivity to the negative guidance scale γ − .        training-light approach that fine-tunes soft tokens to en-
+In practice, we use a larger value for models with stronger              hance intrinsic text–image representation alignment in dif-
+CFG (SD1.5, SDXL), and a smaller value for smaller CFG                   fusion models. By replacing explicit contrastive objectives
+model (SD3). As shown in Table 6, SD3 remains stable                     with a score-based formulation using PL preference model
+across a range of scales, with γ − =0.1 showing the best                 and training negative samples with explicit preference di-
+performance. After training, a fixed scale generalizes well              rections, our method stabilizes soft-token optimization and
+across datasets and tasks at inference time without retraining.          mitigates off-manifold divergence. Through extensive exper-
+                                                                         iments on text-to-image generation and text-guided image
+                                                                         editing, we demonstrate consistent gains in alignment qual-
+BT vs PT Loss Objective. We further compare our PL-                      ity across multiple diffusion backbones. Our approach is
+based multi-candidate formulation with a simpler pairwise                further shown to be complementary to existing DPO-based
+Bradley–Terry (BT) alternative. BT performs pairwise                     post-training methods, yielding additional improvements
+positive–negative comparison, whereas PL naturally han-                  when combined with preference-optimization techniques.
+dles multiple in-batch negative prompts through normalized               Ablation studies confirm the importance of utilizing negative
+multi-candidate preference modeling. PL consistently im-                 samples on training and highlight the impact of sampling
+proves all alignment metrics over BT, while BT gives a                   strategies involving negative tokens. Overall, this work pro-
+slightly lower FID. This supports the use of PL for multi-               vides a simple yet effective framework for strengthening
+candidate alignment rather than reducing the objective to                text–image alignment within the diffusion training dynam-
+independent pairwise comparisons.                                        ics, offering a broadly applicable enhancement for modern
+                                                                         generative models.
+5. Related Works
+Recent work has extended Direct Preference Optimization
+                                                                         Impact Statement
+(DPO) to diffusion models. Diffusion-DPO (Wallace et al.,                This paper presents work whose goal is to advance the field
+2024) adapts DPO (Rafailov et al., 2023) to text-conditioned             of Machine Learning. There are many potential societal
+diffusion processes, and several follow-up methods improve               consequences of our work, none which we feel must be
+preference modeling in different ways. SPO (Liang et al.,                specifically highlighted here.
+2025) introduces step-aware preference signals during on-
+policy sampling. RankDPO (Karthik et al., 2024) gener-
+alizes preference learning to multi-sample ranking, while
+                                                                         Acknowledgement
+CaPO (Lee et al., 2025b) enhances fidelity by aggregating                This work was supported by the National Research Foun-
+multiple reward signals. InPO (Lu et al., 2025) uses DDIM                dation of Korea (NRF) grant funded by the Korea govern-
+inversion to identify preference-relevant latent variables
+
+                                                                     9
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+ment (MSIT) (RS-2026-25468886), the National Research                   Ho, J., Jain, A., and Abbeel, P. Denoising diffusion proba-
+Foundation of Korea under Grant RS-2024-00336454, the                     bilistic models. Advances in neural information process-
+AI Computing Infrastructure Enhancement (GPU Rental                       ing systems, 33:6840–6851, 2020.
+Support) User Support Program funded by the Ministry
+of Science and ICT (MSIT), Republic of Korea (RQT-25-                   Ju, X., Zeng, A., Bian, Y., Liu, S., and Xu, Q. Direct
+120217), the Advanced GPU Utilization Support Program                     inversion: Boosting diffusion-based editing with 3 lines
+funded by the Government of the Republic of Korea (Min-                   of code. CoRR, abs/2310.01506, 2023. URL https:
+istry of Science and ICT) (02-26-01-0404).                                //doi.org/10.48550/arXiv.2310.01506.
+
+                                                                        Karthik, S., Coskun, H., Akata, Z., Tulyakov, S., Ren, J.,
+References                                                                and Kag, A. Scalable ranked preference optimization for
+Black, K., Janner, M., Du, Y., Kostrikov, I., and Levine, S.              text-to-image generation. arXiv preprint, 2024.
+  Training diffusion models with reinforcement learning.                Kim, J., Hong, Y., Park, J., and Ye, J. C. Flowalign:
+  arXiv preprint arXiv:2305.13301, 2023.                                  Trajectory-regularized, inversion-free flow-based image
+Bradley, R. A. and Terry, M. E. Rank analysis of incom-                   editing, 2025. URL https://arxiv.org/abs/
+  plete block designs: I. the method of paired comparisons.               2505.23145.
+  Biometrika, 39(3/4):324–345, 1952.
+                                                                        Kulikov, V., Kleiner, M., Huberman-Spiegelglas, I., and
+Cao, M., Wang, X., Qi, Z., Shan, Y., Qie, X., and Zheng, Y.               Michaeli, T. Flowedit: Inversion-free text-based edit-
+  Masactrl: Tuning-free mutual self-attention control for                 ing using pre-trained flow models. arXiv preprint
+  consistent image synthesis and editing. In Proceedings                  arXiv:2412.08629, 2024.
+  of the IEEE/CVF International Conference on Computer
+                                                                        Lee, J.-Y., Cha, B., Kim, J., and Ye, J. C. Aligning text to
+  Vision (ICCV), pp. 22560–22570, October 2023.
+                                                                          image in diffusion models is easier than you think. arXiv
+Chen, H., Zheng, K., Zhang, Q., Cui, G., Cui, Y., Ye, H.,                 preprint arXiv:2503.08250, 2025a.
+  Lin, T.-Y., Liu, M.-Y., Zhu, J., and Wang, H. Bridging
+  supervised learning and reinforcement learning in math                Lee, K., Li, X., Wang, Q., He, J., Ke, J., Yang, M.-H.,
+  reasoning. arXiv preprint arXiv:2505.18116, 2025.                       Essa, I., Shin, J., Yang, F., and Li, Y. Calibrated multi-
+                                                                          preference optimization for aligning diffusion models. In
+Clark, K., Vicol, P., Swersky, K., and Fleet, D. J. Directly              Proceedings of the Computer Vision and Pattern Recog-
+  fine-tuning diffusion models on differentiable rewards.                 nition Conference, pp. 18465–18475, 2025b.
+  arXiv preprint arXiv:2309.17400, 2023.
+                                                                        Liang, Z., Yuan, Y., Gu, S., Chen, B., Hang, T., Cheng, M.,
+Esser, P., Kulal, S., Blattmann, A., Entezari, R., Müller, J.,            Li, J., and Zheng, L. Aesthetic post-training diffusion
+  Saini, H., Levi, Y., Lorenz, D., Sauer, A., Boesel, F., et al.          models from generic preferences with step-by-step prefer-
+  Scaling rectified flow transformers for high-resolution                 ence optimization. In Proceedings of the Computer Vision
+  image synthesis. In Forty-first international conference                and Pattern Recognition Conference, pp. 13199–13208,
+  on machine learning, 2024.                                              2025.
+Fan, Y., Watkins, O., Du, Y., Liu, H., Ryu, M., Boutilier,              Lin, T.-Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ra-
+  C., Abbeel, P., Ghavamzadeh, M., Lee, K., and Lee, K.                   manan, D., Dollár, P., and Zitnick, C. L. Microsoft coco:
+  Dpok: Reinforcement learning for fine-tuning text-to-                   Common objects in context. In Computer Vision–ECCV
+  image diffusion models. Advances in Neural Information                  2014: 13th European Conference, Zurich, Switzerland,
+  Processing Systems, 36:79858–79885, 2023.                               September 6-12, 2014, Proceedings, Part V 13, pp. 740–
+Gandikota, R., Materzynska, J., Fiotto-Kaufman, J., and                   755. Springer, 2014.
+  Bau, D. Erasing concepts from diffusion models. In
+                                                                        Liu, J., Liu, G., Liang, J., Li, Y., Liu, J., Wang, X., Wan,
+  Proceedings of the IEEE/CVF international conference
+                                                                          P., Zhang, D., and Ouyang, W. Flow-grpo: Training
+  on computer vision, pp. 2426–2436, 2023.
+                                                                          flow matching models via online rl. Advances in neural
+Ghosh, D., Hajishirzi, H., and Schmidt, L. Geneval: An                    information processing systems, 38:40783–40818, 2026.
+  object-focused framework for evaluating text-to-image
+  alignment. Advances in Neural Information Processing                  Lu, Y., Wang, Q., Cao, H., Wang, X., Xu, X., and
+ Systems, 36:52132–52152, 2023.                                           Zhang, M. Inpo: Inversion preference optimization with
+                                                                          reparametrized ddim for efficient diffusion model align-
+Ho, J. and Salimans, T. Classifier-free diffusion guidance.               ment. In Proceedings of the Computer Vision and Pattern
+  arXiv preprint arXiv:2207.12598, 2022.                                  Recognition Conference, pp. 28629–28639, 2025.
+
+                                                                   10
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+Luce, R. D. et al. Individual choice behavior, volume 4.              Xu, J., Liu, X., Wu, Y., Tong, Y., Li, Q., Ding, M., Tang,
+  Wiley New York, 1959.                                                J., and Dong, Y. Imagereward: learning and evaluating
+                                                                        human preferences for text-to-image generation. In Pro-
+Peebles, W. and Xie, S. Scalable diffusion models with                  ceedings of the 37th International Conference on Neural
+  transformers. In Proceedings of the IEEE/CVF interna-                Information Processing Systems, pp. 15903–15935, 2023.
+  tional conference on computer vision, pp. 4195–4205,
+  2023.                                                               Zheng, K., Chen, H., Ye, H., Wang, H., Zhang, Q., Jiang,
+                                                                        K., Su, H., Ermon, S., Zhu, J., and Liu, M.-Y. Diffusion-
+Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn,            nft: Online diffusion reinforcement with forward process.
+  T., Müller, J., Penna, J., and Rombach, R. Sdxl: Im-                  arXiv preprint arXiv:2509.16117, 2025.
+  proving latent diffusion models for high-resolution image
+  synthesis. arXiv preprint arXiv:2307.01952, 2023.                   Zhu, H., Xiao, T., and Honavar, V. G. Dspo: Direct score
+                                                                        preference optimization for diffusion model alignment.
+Rafailov, R., Sharma, A., Mitchell, E., Manning, C. D.,
+                                                                        In The Thirteenth International Conference on Learning
+  Ermon, S., and Finn, C. Direct preference optimiza-
+                                                                        Representations, 2025.
+  tion: Your language model is secretly a reward model.
+  Advances in neural information processing systems, 36:
+  53728–53741, 2023.
+Rout, L., Chen, Y., Ruiz, N., Caramanis, C., Shakkottai, S.,
+  and Chu, W.-S. Semantic image inversion and editing us-
+  ing rectified stochastic differential equations, 2024. URL
+  https://arxiv.org/abs/2410.10792.
+Song, J., Meng, C., and Ermon, S. Denoising diffusion im-
+  plicit models. In 9th International Conference on Learn-
+  ing Representations, ICLR, 2021a.
+Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A.,
+  Ermon, S., and Poole, B. Score-based generative mod-
+  eling through stochastic differential equations. In In-
+  ternational Conference on Learning Representations,
+  2021b. URL https://openreview.net/forum?
+  id=PxTIG12RRHS.
+Tumanyan, N., Geyer, M., Bagon, S., and Dekel, T. Plug-
+  and-play diffusion features for text-driven image-to-
+  image translation. In Proceedings of the IEEE/CVF
+  Conference on Computer Vision and Pattern Recognition
+  (CVPR), pp. 1921–1930, June 2023.
+Wallace, B., Dang, M., Rafailov, R., Zhou, L., Lou, A.,
+ Purushwalkam, S., Ermon, S., Xiong, C., Joty, S., and
+ Naik, N. Diffusion model alignment using direct pref-
+ erence optimization. In Proceedings of the IEEE/CVF
+ Conference on Computer Vision and Pattern Recognition,
+ pp. 8228–8238, 2024.
+Wang, Y., Li, Z., Zang, Y., Bu, J., Zhou, Y., Xin, Y., He, J.,
+ Wang, C., Lu, Q., Jin, C., and Wang, J. Unigenbench++:
+ A unified semantic evaluation benchmark for text-to-
+ image generation, 2026. URL https://arxiv.org/
+ abs/2510.18701.
+Xian, J. J. C., Li, M., Yang, H., Tao, X., Wan, P., Sigal,
+  L., and Liao, R. Free lunch alignment of text-to-image
+  diffusion models without preference image pairs. arXiv
+  preprint arXiv:2509.25771, 2025.
+
+                                                                 11
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+A. Interpretation of Negative Target Distribution
+A Bayes-consistent negative conditional distribution from Eq. (9) can be written as
+                                    p−
+                                     t (xt |c) := pt (xt |c, z=0) ∝ pt (xt |c) p(z=0|xt , c).                           (19)
+
+Since p(z=0|xt , c) = 1−p(z=1|xt , c), the corresponding guidance term becomes
+                                     ∇xt log p(z=0|xt , c) = ∇xt log (1 − p(z=1|xt , c))                                (20)
+                                                                   ∇x p(z=1|xt , c)
+                                                                 =− t                .                                  (21)
+                                                                   1 − p(z=1|xt , c)
+                                                                                                   −
+Instead of directly using p(z=0|xt , c), we adopt the surrogate form p(z=1|xt , c)−γ , which yields
+                                                                 −
+                                   ∇xt log p(z=1|xt , c)−γ = −γ − ∇xt log p(z=1|xt , c)                                 (22)
+                                                                                  ∇xt p(z = 1|xt , c)
+                                                                         = −γ −                       .                 (23)
+                                                                                   p(z = 1|xt , c)
+
+Therefore,
+                                                                                                   −
+                                      ∇xt log p(z=0|xt , c) ∥ ∇xt log p(z=1|xt , c)−γ .                                 (24)
+
+That is, both gradients of Eq. (20) and Eq. (22) are pointwise proportional with a positive scaling factor and share the same
+directional component −∇xt p(z=1|xt , c).
+Therefore, both formulations induce repulsive updates away from regions with high alignment probability, differing only in
+their local scaling factors.
+Accordingly, the proposed inverse weighting can be interpreted as a surrogate negative guidance term that preserves the
+repulsive direction of the Bayes-consistent formulation while yielding a unified additive score form.
+
+B. Reward Function Derivation
+We derive the implicit reward used in our alignment objective. Starting from the definition in Equation (8), we define the
+reward as the expected log-likelihood under the DDPM posterior:
+                                      r(xt , c) := λt Eq(xt−1 |xt ,x0 ) [log pθ (xt−1 | xt , c)] .                      (25)
+The reverse process of DDPM (Ho et al., 2020) provides an explicit Gaussian parameterization for pθ (xt−1 | xt , c):
+                                  pθ (xt−1 | xt , c) = N xt−1 ; µθ (xt , t, c), σt2 I ,
+                                                                                     
+                                                                                                                     (26)
+                                                      
+                                                                                                     t
+                                   βt
+where µθ (xt , t, c) = √1αt xt − √1−     ϵθ (xt , t, c) , and σt2 = 1−ᾱt−1                         Q
+                                      ᾱ   t                         1−ᾱt βt , αt = 1 − βt , ᾱt =  s=1 αs . Since both
+q(xt−1 | xt , x0 ) and pθ (xt−1 | xt , c) are Gaussian, expanding the log-density yields
+                                                          λt                 2
+                                                                              
+                                           r(xt , c) = − 2σ 2 Eq ∥xt−1 − µθ ∥2 + C1                                     (27)
+                                                             t
+
+where C1 is a timestep dependent constant. Using
+                                               E∥xt−1 − µθ ∥2 = ∥µ̃t − µθ ∥2 + d β̃t                                    (28)
+with µ̃t = E[xt−1 | xt , x0 ] and posterior variance β̃t ,
+                                                               λt               2
+                                                r(xt , c) = − 2σ 2 ||µ̃t − µθ ||2 + C2 .                                (29)
+                                                                     t
+
+Since C2 is independent of θ and xt , expressing both µ̃t and µθ in the noise parameterization gives
+                                                                                                  2
+                                                           λt βt        ψ̂z
+                                        r(xt , c) = − 2αt (1−  ᾱt−1 ) ϵθ (xt , t, c) − ϵt                              (30)
+                                                                                                  2
+
+EMA soft tokens ψ̂z are used to stabilize the reward evaluation. Thus, higher reward corresponds to closer agreement
+between model-predicted noise and the forward noise realization.
+
+                                                                         12
+                      Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+C. Alignment-Guided Score Matching Derivation
+To compute the gradient needed in the alignment score model (Equation (13)), we differentiate the reward w.r.t. xt :
+                                                   λt βt                  ⊤ ψ̂z
+                                                                                               
+                             ∇xt r(xt , c) = − αt (1− ᾱt−1 ) Jϵψ̂z (xt )   ϵθ (xt , t, c) − ϵt ,                              (31)
+                                                                     θ
+
+
+                                                          ∂ϵψ̂z
+                                                            θ (xt ,t,c)
+where we omit computing the jacobian Jϵψ̂z (xt ) =             ∂xt      . Plugging Equation (31) into Equation (13), the gradient of
+                                       θ
+the alignment score model becomes
+                                                                             X                                 
+                     ∇xt log p(z=1 | xt , c) = −A(t) ϵψ̂
+                                                      θ
+                                                        z
+                                                          (x t , t, c) − ϵt −   wi (ϵψ̂z
+                                                                                     θ   (x t , t, c i
+                                                                                                       ) − ϵ t )               (32)
+                                                                                        i
+                                                                          X                          
+                                               = −A(t) ϵψ̂
+                                                        θ
+                                                          z
+                                                            (x t , t, c) −   wi ϵ ψ̂z
+                                                                                  θ   (x t , t, c i
+                                                                                                    )   ,                      (33)
+                                                                               i
+
+                     λt βt
+where A(t) = αt (1−     ᾱt−1 ) . With the same realization of ϵt , ϵt cancels between positive and negative terms, giving a
+clean contrast between the positive prediction and the weighted average. Using the definition of the score function which
+                                                                                                                 pθ (xt |c)
+connects the score model and diffusion models described in (Song et al., 2021b), we can derive ∇xt log pdata         (xt |c) =
+     1
+− √1−ᾱ (ϵθ (xt , c, t) − ϵt ). By combining this and Equation (11), Equation (12) becomes
+        t
+
+
+
+                                 h                                                   i
+              L(ψz ) = E (x,c)∼D, w(t)∥∇ log pψ z
+                                              t,θ (x t |c) − ∇ log p̃t (x t |c, z)∥2
+                                                                                   2                                           (34)
+                            t∼U (0,1),
+                            ϵ∼N (0,I)
+                                  h                                                                          i
+                      = E (x,c)∼D, w(t)∥∇ log pψ                                                           2
+                                               t,θ (xt |c) − (∇ log pt (xt |c) + γz ∇ log p(z=1 | xt , c))∥2
+                                                 z
+                                                                                                                               (35)
+                            t∼U (0,1),
+                            ϵ∼N (0,I)
+                                  h                                                                         i
+                                             1
+                      = E (x,c)∼D, w(t)∥ − √1−   ϵψz (xt , t, c) − (− √1−
+                                               ᾱ θ
+                                                                        1
+                                                                            ϵ + γz ∇ log p(z=1 | xt , c))∥22 .
+                                                                          ᾱ t
+                                                                                                                               (36)
+                                                      t                             t
+                            t∼U (0,1),
+                            ϵ∼N (0,I)
+
+By leveraging the gradient of the alignment score modelEq. (33), the final score matching loss can be rewritten as follows:
+                                                                         √                          X
+                                w(t)     ψz                      γz λt βt 1−ᾱt ψ̂z
+         L(ψz ) = E (x,c)∼D, [ 1− ᾱt ∥ϵ θ  (x t , t, c) − (ϵt +  αt (1−ᾱt−1 ) (ϵ θ (x t , t, c) −   wi ϵψ̂z         i   2
+                                                                                                          θ (xt , t, c ))∥2 ]
+                         t∼U (0,1),                                                                    i
+                         ϵ∼N (0,I)
+                                                                                             X
+                  = E (x,c)∼D, [w̃(t)∥ϵψ                               ψ̂z
+                                       θ (xt , t, c) − (ϵt + γz Ã(t)(ϵθ (xt , t, c) −
+                                        z
+                                                                                                   wi ϵψ̂z         i   2
+                                                                                                       θ (xt , t, c ))∥2 ]     (37)
+                         t∼U (0,1),                                                            i
+                         ϵ∼N (0,I)
+
+                     √
+                                           w(t)
+where Ã(t) = αλtt (1−
+                   βt 1−ᾱt
+                       ᾱt−1 ) and w̃(t) = 1−ᾱt .
+
+
+D. Alignment-Guided Score Matching in Flow Model
+Flow model.      Flow model defines the interpolant xt between data x0 ∼ p(x) and noise ϵ ∼ N (0, I) as
+                                               xt = (1 − t)x0 + t ϵ,           t ∈ [0, 1],                                     (38)
+and trains the flow model vθ to match the target velocity via
+                                     Lflow = Ex0 , ϵ, t, c ∥vθ (xt , t, c) − (ϵ − x0 )∥22 .
+                                                                                        
+                                                                                                                               (39)
+
+Text-image alignment in flow model. In the reward fitting process, we measure the alignment between an image and a
+text pair (xt , c), denoted as z, using a Plackett-Luce (PL) model:
+                                                                                         
+                                               exp r(xt , c)              exp r(xt , ci )
+                               p(z|xt , c) = P               i
+                                                                 , wi = P                j
+                                                                                            .                (40)
+                                               i exp r(xt , c )           j exp r(xt , c )
+
+
+                                                                   13
+                     Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+Following SoftREPA (Lee et al., 2025a), which interprets the negative denoising score-matching loss as a logit of contrastive
+learning, we extend this idea to the flow model by defining the reward using the flow model’s conditional likelihood:
+                                                                    2
+                                                                         
+        r(xt , c) = λt log pθ (xt | xt+∆ , c),   pθ = N xt ; µθ , σt+∆  I , µθ = xt+∆ − ∆ vθ (xt+∆ , t+∆, c).            (41)
+                                               2
+Here ∆ > 0 denotes a small time step, and σt+∆     represents the local transition variance (e.g., from the underlying
+probability–flow ODE). Under this local approximation, the flow dynamics
+
+                                                     dxt
+                                                         = vθ (xt , t, c)                                                (42)
+                                                      dt
+can be locally approximated (via first-order Euler discretization) as a Gaussian transition:
+                                                                                      2
+                                                                                           
+                            pθ (xt | xt+∆ , c) ≃ N xt ; xt+∆ − ∆ vθ (xt+∆ , t+∆, c), σt+∆ I ,                            (43)
+
+which describes the probability of reaching xt from xt+∆ under the flow model vθ . Then, the estimated reward becomes
+
+                                        λt          z 2
+                     r(xt , c) = −       2  xt − µψ̂
+                                                  θ   2
+                                                        ,         µψ̂z           ψ̂z
+                                                                   θ = xt+∆ − ∆ vθ (xt+∆ , t+∆, c).                      (44)
+                                     2 σt+∆
+
+To further stabilize the reward calculation, we used flow model with soft tokens updated by exponential moving average
+(EMA), ψ̂z . The gradient of the reward with respect to xt is
+
+                                                                  λt
+                                            ∇xt r(xt , c) = −     2   (xt − µψ̂z
+                                                                             θ ).                                        (45)
+                                                                 σt+∆
+
+Plugging Equation (45) into Equation (40), we obtain
+                                                                 X
+                      ∇xt log p(z=1|xt , c) = ∇xt r(xt , c) −               wi ∇xt r(xt , ci )
+                                                                    i
+                                                    λt                             X λt
+                                             =−    2      (xt − µψ̂z
+                                                                 θ (c)) +            2 wi(xt − µψ̂z i
+                                                                                                θ (c ))
+                                                  σt+∆                        i
+                                                                                   σ t+∆
+                                                  λt                X            
+                                             =    2        µθ′ (c) −   wi µψ̂z  i
+                                                                           θ (c ) .                                      (46)
+                                                 σt+∆                   i
+
+
+
+Substituting µψ̂                ψ̂z
+              θ (c) = xt+∆ − ∆ vθ (xt+∆ , t+∆, c) cancels out xt+∆ and yields
+                z
+
+
+
+
+                                               λt ∆  ψ̂z                 X                           
+                 ∇xt log p(z=1 | xt , c) = −    2    vθ (xt+∆ , t+∆, c) −   wi vθψ̂z (xt+∆ , t+∆, ci ) .                 (47)
+                                               σt+∆                       i
+
+
+Score matching loss in flow model. Starting from the score matching objective
+                           h                                                                                     2i
+       L(ψz ) = E (x,c)∼D, w(t) ∇xt log pψ  z
+                                          t,θ (x t | c) − ∇ xt
+                                                               log pt (x t | c) + γ z ∇ x t
+                                                                                            log p(z=1 | x t , c)  2
+                                                                                                                     ,   (48)
+                    t∼U (0,1),
+                    ϵ∼N (0,I)
+
+we use the probability–flow ODE relation
+
+                                  v(xt , t, c) = − K(t) ∇xt log pt (xt | c),                K(t) > 0,                    (49)
+
+where K(t) is a time-dependent scaling factor determined by the flow formulation (e.g., K(t) = 12 g(t)2 in a probability–flow
+ODE).
+Substituting
+                                          ψz
+                                         vt,θ (xt , c) := −K(t) ∇xt log pψ
+                                                                         t,θ (xt | c),
+                                                                           z
+
+
+
+
+                                                               14
+                      Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+and the gradient of alignment score model
+
+                                                 λt ∆  ψ̂z                    X      ψ̂z                 i
+                                                                                                             
+                  ∇xt log p(z=1 | xt , c) = −     2    v θ  (x t+∆ , t+∆, c) −   wi v θ   (x t+∆ , t+∆, c   )  ,
+                                                 σt+∆                          i
+
+into the score matching objective, we obtain
+             h                                                                                        2i
+ L(ψz ) = E w(t) ∇xt log pψ     z
+                              t,θ (x t | c) − ∇ x t log pt (x t | c) + γ z ∇ x t log p(z=1 | x t , c)  2
+           h w(t)                                           λt ∆ ψ̂z                    X                             2 i
+                    ψz                                                                        ψ̂z                 i
+         =E       v    (x t , c) − v t (x t , c) + γ z K(t)      v   (x t+∆ , t+∆, c) −   w v
+                                                                                           i θ    (x t+∆ , t+∆, c   )
+            K(t)2 t,θ                                        2
+                                                            σt+∆   θ
+                                                                                        i
+                                                                                                                        2
+
+                                                                                                                              (50)
+
+where the expectation is over (x, c, z) ∼ D, t ∼ U (0, 1), and ϵ ∼ N (0, I).
+Finally, redefining weighting term as w̃(t) = w(t)/K(t)2 and B(t) = K(t) σλ2t ∆ the loss can be expressed as
+                                                                                       t+∆
+
+             h                                                                    X                            2 i
+                     ψz
+   L(ψz ) = E w̃(t) vt,θ (xt , c) − vt (xt , c) + γz B(t) vθψ̂z (xt+∆ , t+∆, c) −   wi vθψ̂z (xt+∆ , t+∆, ci ) 2 ,            (51)
+                                                                                             i
+
+which mirrors the diffusion-based objective in Equation (37) while entirely derived within the flow-based formulation.
+
+E. Additional Results on Image Generation
+COCO-val T2I Generation. In this section, we present detailed quantitative results on the COCO-val image generation
+task, comparing the baseline, SoftREPA, and our method across different backbones. As shown in Table 8, our method
+consistently outperforms the baselines in both human preference scores and CLIP scores. With respect to the trade-off
+between human preference scores and FID, our method achieves lower FID than SoftREPA while maintaining strong
+preference-aligned performance.
+
+                                                               COCO val5K
+                                      Model     ImageReward↑      PickScore↑   CLIP↑     HPSv2↑      FID↓
+                                      SD1.5        17.72             21.47      26.4         25.08   24.59
+                             SD1.5
+
+
+
+
+                                     SoftREPA      40.02             21.64     27.09         26.05   29.25
+                                       Ours        34.50             21.59     27.23         25.66   25.94
+                                      SDXL         75.06             22.38     26.76         27.35   24.69
+                             SDXL
+
+
+
+
+                                     SoftREPA      85.28             22.63     26.78         28.41   26.42
+                                       Ours        84.22             22.57     26.86         27.96   24.83
+                                       SD3         94.27             22.54     26.30         28.09   31.59
+                             SD3
+
+
+
+
+                                     SoftREPA      108.5             22.55     26.91         28.91   36.21
+                                       Ours        103.3             22.39     27.00         28.22   34.08
+Table 8. Quantitative evaluation of T2I generation on SD1.5, SDXL, and SD3. Generation quality is evaluated on the COCO-val 5K (Lin
+et al., 2014) and GenEval (Ghosh et al., 2023) benchmark. ImageReward, CLIP, HPS, and LPIPS are scaled by ×102 .
+
+
+Long-prompt T2I Generation. To further evaluate generalization to long-text prompts, we additionally test on UniGen-
+Bench++ (Wang et al., 2026) with 600 long-text T2I prompts, comparing SD3, SoftREPA, and our method. As shown
+in Table 9, our method achieves the best ImageReward, CLIP, PickScore, and HPSv2, indicating that the proposed method
+remains effective beyond short COCO-style captions.
+
+F. Additional Results on Image Editing
+In this section, we provide implementation details on the baseline methods used in the image editing experiments. We
+provide quantitative evaluation results of all editing methods in Table 10. Our method enhances text alignment of baseline
+methods with comparable or superior background preservation. In Figure 7, we present additional qualitative comparison on
+baseline editing methods.
+
+                                                                   15
+                   Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+                                 Model         ImageReward CLIP PickScore HPSv2
+                                 SD3 Base          82.33        29.50      21.32      28.87
+                                 SoftREPA          90.63        28.93      21.18      28.61
+                                 Ours              98.01        29.56      21.48      29.66
+                                 Table 9. Comparison on UniGenBench++ (Wang et al., 2026).
+
+
+
+
+                    Figure 7. Qualitative comparison of our proposed method with different editing methods.
+Baseline methods - SD3
+
+ 1. RF-Inversion (Rout et al., 2024) : We employ RF-Inversion as a representative baseline for image editing utilizing the
+    inversion process within the SD3 framework. Based on the official implementation, we configure the parameters as
+    follows: γ = 0.5, η = 0.9, a starting time s = 0, and a stopping time τ = 0.25. Null-text embedding is leveraged for
+    the inversion stage, and a Classifier-Free Guidance (CFG) scale of 13.5 is applied during the sampling phase to ensure
+    consistency with the FlowEdit implementation.
+ 2. FlowEdit (Kulikov et al., 2024) : FlowEdit is selected as a baseline method that effectively bypasses the inversion
+    process in SD3. We utilize a CFG scale of 3.5 for the source direction and 13.5 for the target direction. Additionally,
+    the starting index of timestep is set to 18 out of a total of 50 timesteps, resulting in 33 timesteps.
+ 3. FlowAlign (Kim et al., 2025) : We include FlowAlign, a method that improves FlowEdit by regularizing the editing
+    trajectory, demonstrating superior source consistency. Consistent with the FlowEdit configuration, the target CFG scale
+    is set to 13.5. We adopt the official implementation’s setting for the regularization coefficient, ζ = 0.01.
+
+Baseline methods - SD1.5
+
+ 1. MasaCtrl (Cao et al., 2023) : For an editing method that adapts the self-attention mechanism to enable consistent
+    synthesis, we select MasaCtrl. Following the original work, we configure the initial layout synthesis to stop at step
+    S = 4 and initiate the mutual self-attention control from layer L = 10. We evaluate this method using both DDIM
+    inversion and a direct inversion approach. NFE is set to 50 with a CFG scale of 7.0.
+ 2. PnP (Tumanyan et al., 2023) : PnP performs text-driven image-to-image translation by extracting and injecting spatial
+    features (f ) from intermediate decoder layers and self-attention maps (A) from the guidance image’s generation into
+    the target image’s generation. For our experiments, which use 50 total sampling steps, we set the injection thresholds
+    as τA = 25 and τf = 40, consistent with the official implementation. PnP is implemented on both DDIM and direct
+    inversion with a CFG scale of 7.0.
+
+                                                              16
+                          Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+                                                    Human Preference                     Text Alignment                Background Preservation
+                                                   Image         Pick           CLIP/        CLIP/                               LPIPS/
+           Inversion      Method                         ↑             ↑               ↑           ↑      HPS↑       PSNR↑              ↓   SSIM↑
+                                                  -Reward       -Score          Edited       Whole                               Whole
+            ddim          PnP                       32.29        21.53           22.56        25.59       20.55      22.31        14.48     79.58
+            ddim          PnP + Ours                26.74        21.49           22.95        26.10       20.52      22.57        10.81     80.14
+            direct        PnP                        40.85       21.65           22.68        25.64       20.61      22.46        13.44     80.22
+            direct        PnP + Ours                36.59        21.62           22.99        26.18       20.62      22.74        10.08     80.70
+   SD1.5
+
+
+
+
+            ddim          MasaCtrl                  -13.94       21.03           21.20        24.18       20.27      22.31        14.59     80.41
+            ddim          MasaCtrl + Ours            -8.71       21.01           21.86        25.08       20.24      21.60        11.65     79.30
+            direct        MasaCtrl                    4.77       21.39           21.47        24.54       20.53      22.82        12.21     82.02
+            direct        MasaCtrl + Ours            7.79        21.41           22.19        25.53       20.52      21.99         9.87     80.78
+              o           RF-Inversion              128.0        22.07           24.17        27.26       20.84      13.10        36.10     57.17
+              o           RF-Inversion + Ours       132.3        22.13           24.72        29.07       20.58      12.90        37.17     57.98
+              x           FlowEdit                  103.0        22.08           23.35        26.46       21.11      21.44        10.84     81.36
+  SD3
+
+
+
+
+              x           FlowEdit + Ours           114.8        22.36           24.59        28.47       21.02      20.20        13.86     78.54
+              x           FlowAlign                 68.00        21.50           22.38        25.65       20.85      24.21         6.89     86.44
+              x           FlowAlign + Ours          81.97        21.63           23.33        27.40       20.67      22.65        9.58      83.95
+Table 10. Quantitative evaluation of image editing performance our method compared to baseline methods. ImageReward, CLIP, HPS,
+LPIPS, and SSIM are scaled by ×102 and Distance is scaled by ×103 .
+
+
+G. Implementation Details
+All experiments were performed on two NVIDIA A100 GPUs, and detailed training configurations can be found in Table 11,
+using a configuration almost identical to that of SoftREPA (Lee et al., 2025a). For inference, we used positive soft tokens
+(ψ + ) for both conditional and unconditional generation. In Appendix H, additional results for using both positive and
+negative soft tokens together are provided.
+
+                                     total batch size
+  Models             lr    wd                                iterations         token init      optimizer                    lr scheduler
+                                   (positive:negative)
+  SD1.5           1e-3     1e-4         16(1 : 3)            100,000            ∅                AdamW            CosineAnnealingWarmRestarts
+  SDXL            1e-3     1e-4         16(1 : 3)             1,000         N (0, 0.02)          AdamW            CosineAnnealingWarmRestarts
+   SD3            1e-3     1e-4         16(1 : 3)            100,000        N (0, 0.02)          AdamW            CosineAnnealingWarmRestarts
+                                                Table 11. The implementation details for training.
+
+
+H. Additional Results on Ablation Studies
+The Number of Soft Tokens. We also study the effect of the number and type of optimized soft tokens. As shown
+in Table 12, using eight text tokens does not improve performance, consistent with SoftREPA’s observation that performance
+is stable around four tokens and can degrade with more tokens. Interestingly, optimizing both text and image tokens remains
+effective in our framework, demonstrating flexibility of our proposed method.
+
+The Effect of Batch Size. We further analyze the effect of batch size, which determines the size of the in-batch negative
+prompt pool. As shown in Table 13, increasing the batch size from 4 to 16 improves alignment-related metrics, while
+increasing it further to 64 yields only marginal gains. This suggests that a larger negative pool is useful up to a point, but our
+method does not rely on very large batch sizes.
+
+Sampling Strategy on Negative Tokens. To evaluate the role of negative soft tokens, we compare alternative sampling
+strategies during inference. Our default configuration uses only positive soft tokens for both the conditional and unconditional
+predictions in classifier-free guidance (CFG). To assess whether negative soft tokens can further suppress the modeling
+of complement set or counterfactual concepts of given prompt, we also test a variant where the conditional prediction
+uses positive soft tokens and the unconditional prediction uses negative soft tokens during CFG. In Figure 8, it shows
+that injecting negative tokens into the unconditional CFG prediction produces images that may appear visually clean and
+high-quality, but overly suppress details and background elements which are not mentioned in the captions, resulting in
+overly simple images with reduced variation and consequently lower human-preference scores.
+
+                                                                           17
+                       Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+                         # text (pos) / # image ImageReward↑ PickScore↑ CLIP↑ HPSv2↑ FID↓
+                         8/0                              94.27             22.09        26.95      27.44     32.37
+                         4/4                              103.0             22.42        27.06      28.26     33.11
+                         4 / 0 (ours)                     103.3             22.39        27.00      28.22     34.08
+Table 12. Ablation on the number of soft tokens. # text (pos) denotes the number of ψ + , and # image denotes the number of learnable soft
+image tokens.
+
+                          Batch size (pos:neg) ImageReward↑ PickScore↑ CLIP↑ HPSv2↑ FID↓
+                          4 (1:1)                        29.67             21.52        27.13      25.31      24.76
+                          16 (1:3)                       34.50             21.59        27.23      25.66      25.94
+                          64 (1:7)                       32.32             21.59        27.11      25.83      26.64
+Table 13. Ablation study on the effect of batch size (SD1.5). pos:neg denotes the number of in-batch negative prompts for each positive
+text-image pair to calculate the guidance.
+
+
+
+
+Figure 8. Qualitative results of the ablation study. (1) Effect of negative soft tokens optimization. (2) Effect of applying negative tokens to
+the unconditional prediction of CFG during sampling.
+
+I. Additional Qualitative Results with DPO methods
+In this section, we present qualitative comparisons of DPO methods with and without soft-token integration. As shown in
+Figure 9, incorporating soft tokens helps the model generate images that follow the text constraints more faithfully.
+
+
+
+
+   Figure 9. Qualitative evaluation of complementarity with other Diffusion-RL methods on COCO-val5K dataset(Lin et al., 2014).
+
+                                                                      18
+                    Alignment-Guided Score Matching for Text-to-Image Alignment in Diffusion Models
+
+J. Trade-off between Text Alignment metrics and FID
+In reward or preference-optimization methods for diffusion models, improving text alignment often comes with reduced
+diversity or coverage, which can negatively affect FID. Our results follow this general trend, but the degradation is modest
+relative to the base model while alignment metrics improve consistently. As shown in the main quantitative results, our
+method improves ImageReward, CLIP, and HPSv2 across backbones, with only a moderate FID increase compared to the
+base model.
+Importantly, compared with SoftREPA, our method achieves a better alignment–fidelity trade-off ( Figure 5). Across SD1.5,
+SDXL, and SD3, AGSM obtains lower FID than SoftREPA while maintaining strong alignment performance, yielding a
+better ImageReward–FID Pareto front. Moreover, when combined with diffusion-RL baselines, our soft-token integration
+consistently improves both FID and alignment ( Table 3), suggesting that the proposed representation-level alignment can
+complement preference optimization without simply sacrificing image quality.
+
+
+
+
+                                                            19
+

@@ -1,0 +1,1910 @@
+                                         LogicVal:A Logic-Formalized Benchmark for Constraint Satisfaction in
+                                                             Text-to-Image Generation
+
+                                                  Savitha Sam Abraham1,*,† , Marjan Alirezaie2,3,*,† , Hossein Rahnama2,3,4
+                                                                  1
+                                                                    City St George’s, University of London
+                                                 2
+                                                   Toronto Metropolitan University 3 Flybits Labs, Creative AI Hub, Toronto
+                                                           4
+                                                             MIT Media Lab, Massachusetts Institute of Technology
+                                                     savitha.sam-abraham@city.ac.uk, marjan.alirezaie@torontomu.ca, rahnama@mit.edu
+
+
+
+                                                             Abstract                            1   Introduction
+
+                                                                                                 Text-to-Image (T2I) generative models have made
+arXiv:2610.24051v1 [cs.AI] 16 Oct 2026
+
+
+
+
+                                          Text-to-Image (T2I) generative models have             impressive progress in recent years, producing im-
+                                          made significant progress in producing high-           ages that capture both realistic scenarios and highly
+                                          fidelity images from natural-language prompts.         imaginative concepts. This progress has enabled
+                                          Alongside this progress, numerous bench-               the widespread adoption of T2I models across a
+                                          marks have been developed to evaluate capa-            range of applications including fashion, architec-
+                                          bilities such as attribute binding, numeracy,          ture (Li et al., 2026; Ni, 2025), and beyond. As T2I
+                                          spatial reasoning, and commonsense reason-
+                                                                                                 models become increasingly capable, an important
+                                          ing. In this work, we propose a new per-
+                                          spective on T2I evaluation by casting it as            question arises: What comes next? A key challenge
+                                          a constraint-satisfaction problem. We intro-           is moving beyond generating visually compelling
+                                          duce a logical framework that formally speci-          images toward generating images that reliably sat-
+                                          fies the benchmark domain, including objects,          isfy the constraints specified in a prompt. Current
+                                          attributes, and relations, alongside the con-          T2I models typically treat prompts as a form of
+                                          straints that generated images must satisfy.           soft conditioning, providing no formal guarantee
+                                          We evaluated four state-of-the-art T2I models
+                                                                                                 that all specified requirements will be satisfied in
+                                          across 9 classes of constraints ranging from
+                                          a single-object-attribute to multi-object rela-        the generated image. This gap is particularly im-
+                                          tionships constraints involving logical opera-         portant for applications where controllability and
+                                          tors (∀, ∃, count, →). Our results reveal a sub-       reliability are critical. The appeal and educational
+                                          stantial gap between single-object and complex         potential of T2I models in medical pedagogy have
+                                          conditional multi-object relationship constraint       been investigated by Temsah et al. (2024), which
+                                          classes, with the best-performing model achiev-        highlights concerns regarding their reliability in
+                                          ing 98% accuracy on the former and just 53%            educational settings.
+                                          on the latter. We assess compositional generali-
+                                          sation, finding that the best-performing model‘s          Enabling further progress toward controllable
+                                          accuracy drops from 84% on single-constraint           and reliable T2I generation requires benchmarks
+                                          prompts to 20% when satisfying multiple con-           that can systematically characterize what a model
+                                          straints simultaneously. Identifying unsatisfi-        can and cannot satisfy. Existing T2I benchmarks
+                                          able constraints is also challenging, with the         have made important progress in this direction,
+                                          best model correctly recognizing only 23% of           with much of the literature focusing on three core
+                                          such prompts. Building on this framework, we
+                                                                                                 capabilities: attribute binding to objects, numeracy,
+                                          introduce LogicVal, an evaluation methodol-
+                                          ogy that combines neural visual detection with         and spatial relationships between objects (Huang
+                                          logical reasoning to assess constraint satisfac-       et al., 2025). These benchmarks typically define
+                                          tion in generated images. On CLEVR, Logic-             their own sets of objects, attributes, and relations,
+                                          Val achieves ROC-AUC scores ranging from               together with prompt templates that are instanti-
+                                          0.88 to 0.98, indicating strong alignment with         ated using elements from these sets. Evaluation is
+                                          human judgments. These findings underscore             then commonly performed using multimodal large
+                                          the value of logic-based evaluation for charac-        language model (MLLM)-based metrics like Soft-
+                                          terizing T2I model capabilities and limitations.
+                                                                                                 TIFA (Kamath et al., 2025) or other learned similar-
+                                                                                                 ity measures like CLIPScore (Hessel et al., 2021).
+                                          * Equal contribution. † Corresponding authors.         Existing T2I evaluation often lacks a formal speci-
+
+                                                                                             1
+fication of the properties that an image is required                     verify an image’s alignment with the con-
+to satisfy. We introduce such a specification, and                       straints specified. LogicVal judgement is val-
+use it to turn evaluation into a logical constraint-                     idated against human-judgement for a set of
+satisfaction problem.                                                    3887 images: it reaches a ROC-AUC of 0.88–
+   In this paper, we propose a new perspective on                        0.98 with human judgments.
+T2I benchmarking by placing logical formalization
+at its core. We realize this by formally specify-                      • An analysis of state-of-the-art T2I mod-
+ing two key components: (i) the domain specifica-                        els. We evaluate four T2I models on their
+tion, which defines the objects, attributes, and rela-                   ability to generate images that satisfy single-
+tions considered in the benchmark, and (ii) the con-                     constraint mentioned in a prompt vs multiple-
+straint specification, which defines the constraints                     constraints specified jointly in a prompt, as
+on properties and relationships that a generated                         well as their ability to identify prompts con-
+image is required to satisfy (see Figure 1). Both                        taining unsatisfiable constraints. We provide
+specifications are expressed in Answer Set Pro-                          a detailed analysis of the challenges posed
+gramming (ASP) (Eiter et al., 2009); the domain                          by different classes of constraints, individual
+specification is domain-agnostic, and we instanti-                       logical operators (∀, ∃, count, →), and their
+ate it here for CLEVR (Johnson et al., 2017). The                        combinations, investigating whether particular
+constraint specification supports templates ranging                      constraint types or compositions pose consis-
+from simple attribute binding to more complex re-                        tent difficulties across models.
+lational structures involving multiple objects and
+relations, including graph-structured compositions.
+This formalization decouples the specification of                  2     Related Work
+the evaluation criteria from their natural-language                2.1    T2I Image Generative Models
+realization and, importantly, casts T2I evaluation
+as a constraint-satisfaction problem that can be ad-               Text-to-Image (T2I) generation has evolved
+dressed by combining neural detection models for                   through a variety of generative modeling
+visual grounding with logical solvers for constraint               paradigms, including Generative Adversarial
+verification. Building on this formalization, we                   Networks (GANs) (Goodfellow et al., 2014),
+introduce LogicVal, a benchmark and evaluation                     Vector-Quantized Variational Autoencoders
+framework for logical constraint satisfaction in T2I               (VQ-VAEs) (van den Oord et al., 2017), diffusion
+generation. The contributions of this paper are as                 models (Ho et al., 2020; Song et al., 2020),
+follows:                                                           normalizing flows (Rezende and Mohamed,
+                                                                   2015; Chen et al., 2018), and, more recently,
+   • The LogicVal benchmark.1 We formalise                         flow-matching models (Lipman et al., 2023). In
+     evaluation criteria as domain specification (ob-              this work, we evaluate models spanning multiple
+     jects, attributes, relations) and constraint spec-            recent T2I generation paradigms. Specifically, we
+     ification in ASP, decoupling what is evaluated                evaluate Qwen-Image (Wu et al., 2025), which
+     from how it is phrased. We define 9 constraint                is based on diffusion, and FLUX.1-dev, which
+     classes, with each class having 4 to 11 tem-                  uses flow matching, as well as GPT Image, which
+     plates of varying complexity and logical ex-                  follows an autoregressive generation paradigm. We
+     pressivity, from attribute binding to quantifier              additionally evaluate Gemini, a proprietary multi-
+     alternation and count comparison, and instan-                 modal model with image-generation capabilities
+     tiate them into 509 solver-labelled (SAT/UN-                  whose underlying image-generation architecture
+     SAT) specifications.                                          is not publicly specified in sufficient detail for a
+   • The LogicVal score and its meta-evaluation.                   precise architectural classification.
+     We introduce the LogicVal score, which
+                                                                   2.2    T2I Benchmarking
+     makes the correctness of a T2I-generated im-
+     age a matter of logical entailment. We com-                   Existing T2I benchmarks fall into two broad cat-
+     bine neural grounding with a logic solver to                  egories: those evaluating literal prompt–image
+    1
+                                                                   alignment and those assessing reasoning based
+      The code is available at LogicVal-repo; the benchmark,
+the human annotations and the generated images will be re-         on implicit commonsense or domain knowledge.
+leased with the camera-ready version.                              The first includes GenEval (Ghosh et al., 2023),
+
+                                                               2
+                                   ① LogicVal benchmark                                                             ② Image generation                                           ③ LogicVal evaluation
+    Formal specification
+
+   Domain specification               Instantiation + CLINGO                      Verbaliser                         Text-to-image model                       Detection                         Spatial grounding                            CLINGO
+ objects, attributes, relations;          fill templates with            renders C as a short / long                     GPT-Image-2                  GSAM + CLIP: shape, colour,           regions and spatial relations                   S(I)
+                                                                                                                                                                                                                                            b    |= C ?
+     e.g. CLEVR (used                       domain values,                 natural-language prompt                    Gemini-3-Pro-Image               material and bounding box              from the bounding boxes
+        here), COCO                      solve for n objects:                                                             FLUX.1-dev                         of each object
+                                             SAT / UNSAT                                                                 Qwen-Image
+
+                                                                                                                                image I
+
+  Constraint specification                Specification C              Prompt PC (short)                                                                                                    Scene graph S(I)
+                                                                                                                                                                                                        b                               LogicVal verdict
+       9 classes C1–C9,                      C6, n=5, SAT              “. . . The scene is with 5 objects.                                                                                  object(1). object(2). . . .
+   71 ASP templates (Table 2);
+                                                                                                                                                                                                                                          ✓ satisfied
+                                   cex(X) :- object(X), object(Y),     There must be at least one blue                                                                                      hasProperty(1,color,blue).
+            e.g. C6:                 X!=Y,                                                                                                                                                  hasProperty(2,color,green).
+                                                                       object in the scene. There exists
+ cex(X) :- object(X), object(Y),   hasProperty(X,color,green),                                                                                                                              hasRelationship(2,1,right).
+   X!=Y, hasProperty(X,P1’,V1’),     hasProperty(Y,color,blue),
+                                                                       some green object such that it is to
+   hasProperty(Y,P2’,V2’),           not hasRelationship(X,Y,right).   the right of every blue object.”
+   not hasRelationship(X,Y,D1’),   sat :- object(X), not cex(X),
+   V1’!=V2’.                         hasProperty(X,color,green).                                                      Gemini-3-Pro-Image        detected bounding boxes and 2 × 2 regions
+ sat :- object(X), not cex(X),     :- not sat.
+   hasProperty(X,P1’,V1’).         :- #count{Y: object(Y),
+ :- not sat.                         hasProperty(Y,color,blue)}=0.
+                                                                                                                                                                                                                          specification C
+
+
+
+
+Figure 1: Overview of LogicVal, following one specification (class C6). ① The benchmark: a formal specification
+(domain and constraint templates) is instantiated and labelled SAT/UNSAT by CLINGO and verbalised into a prompt.
+② Image generation: the prompt is rendered by a T2I model. ③ LogicVal evaluation: scene graph is extracted and
+checked against the constraint specification with CLINGO.
+
+                                          Benchmark                                 Negation                  ∀/∃   Counting          Composition       UNSAT              Formal spec.
+
+                                          T2I-CompBench (2023)                            –                    ◦        ◦                   ✓                –                     –
+                                          GenEval (2023)                                  –                    ◦        ◦                   ◦                –                     –
+                                          GenEval 2 (2025)                                –                    ◦        ◦                   ✓                –                     –
+                                          GenAI-Bench (2024)                              ✓                    ◦        ✓                   ✓                –                     –
+                                          GeckoNum (2024)                                 ◦                    ◦        ◦                   –                –                     –
+                                          NegT2IBench (2026)                              ✓                    ◦        –                   ◦                –                     –
+
+                                          LogicVal (ours)                                 ✓                   ✓         ✓                   ✓                ✓                     ✓
+
+
+Table 1: Comparison with other T2I benchmarks based on logical operators evaluated, presence of unsatisfiable
+prompts, a formal specification. ✓ covered, ◦ partly, – not covered.
+
+
+GenEval 2 (Kamath et al., 2025), and T2I-                                                                                       cuses on formally specified, explicit logical con-
+CompBench (Huang et al., 2023), which assess at-                                                                                straints.
+tribute binding, object relationships, numeracy, and
+compositional generation. NegT2IBench (Elfatairy                                                                                2.3         T2I Evaluation Metrics
+et al., 2026) focuses on negation, while GenAI-                                                                                 One challenge in text-to-image (T2I) research is
+Bench (Li et al., 2024) also evaluates counting                                                                                 developing automatic evaluation metrics that align
+and universal quantification. These benchmarks                                                                                  closely with human judgments of prompt adher-
+primarily use predefined prompt templates, except                                                                               ence. We focus on reference-free metrics, includ-
+GenAI-Bench, which uses human-curated prompts.                                                                                  ing CLIPScore (Hessel et al., 2021), which mea-
+   Table 1 compares these benchmarks with Log-                                                                                  sures image–prompt alignment using the cosine
+icVal. Partial coverage (◦) indicates limited sup-                                                                              similarity between their CLIP embeddings. More
+port relative to LogicVal’s logical expressiveness                                                                              recent approaches leverage vision-language mod-
+and compositional complexity. For example, while                                                                                els (VLMs) for evaluation. VQAScore (Lin et al.,
+existing benchmarks typically test numeracy by                                                                                  2024) computes the probability that a visual ques-
+checking specified object counts, LogicVal distin-                                                                              tion answering (VQA) model answers Yes to the
+guishes exact, minimum, and maximum cardinal-                                                                                   question ‘Does this image align with the prompt?’
+ities and supports comparative constraints (e.g.,                                                                               given the generated image. Soft-TIFA (Kamath
+equal numbers of cylinders and cubes). It also                                                                                  et al., 2025) decomposes the prompt into n sub-
+extends quantifier evaluation beyond simple exis-                                                                               questions, each with an expected answer, and eval-
+tential and universal statements to combinations                                                                                uates alignment by aggregating the probabilities
+such as ∀x̄∃ȳ and ∃x̄∀ȳ, as well as conditional                                                                               assigned to the expected answers by a VQA model.
+constraints.
+                                                                                                                                3          LogicVal
+   The second category includes reasoning-oriented
+benchmarks such as T2I-ReasonBench (Sun et al.,                                                                                As shown in Figure 1, LogicVal consists of a
+2025), R2I-Bench (Chen et al., 2025), WorldGen-                                                                                benchmark, which turns a formal specification
+Bench (Zhang et al., 2025), which evaluate whether                                                                             into prompts, and a logic-based evaluation met-
+generated images reflect implicit world knowledge                                                                              ric, which checks whether the generated images
+or scientific principles. This knowledge-intensive                                                                             entail the constraint specification. We first fix the
+reasoning lies beyond LogicVal’s scope, which fo-                                                                              notation (§3.1), then describe the two parts (§3.2,
+
+                                                                                                                         3
+§3.3).                                                          to generate prompts. Appendix B provides the list
+                                                                of 71 templates. For templates involving universal
+3.1   Formalization                                             quantification (e.g., All blue objects are cylinders),
+A specification C is a set of constraints over the              we add an anti-vacuity clause requiring at least one
+domain; a verbaliser renders it as a prompt PC , and            object to satisfy the antecedent (e.g., There is at
+a T2I model G generates an image I = G(PC ).                    least one blue object), preventing the statement
+The LogicVal evaluation extracts a scene graph                  from being vacuously true. A compositional speci-
+S(I),
+ b      i.e. the objects, their attributes and their spa-       fication combines m ∈ {1, 3, 6} constraints from
+tial relations, and an ASP solver checks whether                distinct classes, which are jointly checked by the
+S(I)
+ b     |= C. Since many different images can sat-               solver.
+isfy the same C, no reference image is needed. If
+                                                                Instantiation and labelling. A constraint speci-
+the constraints in C contradict each other, no scene
+                                                                fication C is generated by instantiating a template
+can satisfy them, and the correct output is an empty
+                                                                from one of the classes and sampling a scene size
+scene.
+                                                                n ∈ {3, . . . , 9}, representing the number of objects.
+3.2   Benchmark                                                 The resulting prompt is: Generate an image with
+                                                                n objects such that it satisfies constraint C. Given
+Domain specification. The domain specification                  n and C, CLINGO (Gebser et al., 2019) checks
+defines objects, their attributes, and inter-object             whether a valid configuration of the n objects satis-
+relationships on which constraints can be speci-                fying C exists. The specification is labelled SAT
+fied. We represent the CLEVR domain (Johnson                    if an answer set exists and UNSAT otherwise. Ap-
+et al., 2017), with its vocabulary of eight colours,            pendix A provides details of the ASP program sup-
+three shapes, and two materials, and divide scenes              plied to CLINGO.
+into four regions on a 2x2 grid, following CLEVR-
+POC (Abraham et al., 2024). Spatial relations                   Verbalisation. A deterministic verbaliser renders
+left, right, front, and behind are defined by a back-           each constraint in a short and a long register; the
+ground ASP program. Objects in different regions                long one spells out the quantifier scope explicitly.
+inherit their regions’ spatial relations, while objects         It also produces sub-questions with expected an-
+within the same region are freely ordered subject               swers, which are used by the Soft-TIFA metric
+to anti-symmetry, inverse, and transitivity axioms              (§4.3). Appendix C shows the prompt template and
+(Appendix A).                                                   examples of prompts in both registers.
+
+Constraint specification. Attribute values and                  Benchmark composition. We generate 6 main
+spatial relations are unary and binary predicates,              dataset packages. Each package is a collection
+e.g. Blue(x) and Left(x, y), both possibly negated.             of prompts. A package is named by its number
+For objects x̄ = x1 , . . . , xt , Φ(x̄) and Ψ(x̄) are          of constraints m followed by its label, e.g. 1SAT
+conjunctions of attribute literals and R(x̄) and                or 3SAT or 1UNSAT - m denotes the number of
+R′ (x̄) are conjunctions of spatial relations among             constraints to be satisfied in a single prompt. The
+them; R(x̄, ȳ) relates x̄ to a second group ȳ =               LogicVal benchmark contains 509 prompts: 355/25
+y1 , . . . , ym , and θ ∈ {=, ̸=, <, ≤, >, ≥} compares          1SAT/1UNSAT, 25/10 3SAT/3UNSAT, and 25/69
+counts. Table 2 lists nine primitive classes in                 6SAT/6UNSAT prompts.
+three groups of increasing expressivity: Object-                   1SAT covers all templates equally (Refer Ap-
+level classes (C1–C3) constrain single objects exis-            pendix D for benchmark statistics). UNSAT speci-
+tentially, universally or conditionally; SubGraph-              fications arise naturally during generation: a single
+level classes (C4–C7) constrain several related ob-             constraint is rarely contradictory, whereas several
+jects, from existential (C4) and conditional (C5)               combined constraints often are.
+patterns to the quantifier alternations ∃∀ (C6) and
+∀∃ (C7); Cardinality-level classes compare the                  3.3   Evaluation
+number of objects satisfying a pattern with a con-              LogicVal evaluation. The LogicVal evaluation
+stant (C8) or with another pattern (C9). We use the             comprises two steps: (1) extracting a scene graph
+logical programming language ASP to realize the                 S(I)
+                                                                b from the generated image I and encoding it in
+above constraint formalization. LogicVal has 71                 ASP using predicates object/1, hasProperty/3,
+constraint templates in ASP which are instantiated              and hasRelationship/3; and (2) using CLINGO
+
+                                                            4
+ID       Name           #T   Abstract Form                                   Example template instance (ASP)              Natural language
+
+    Object-level
+C1       Existential    11   ∃x Φ(x)                                         :- #count{X: obj(X), hP(X,color,red)} = 0.   A red object is in the scene.
+         Object
+C2       Universal      9    ∀x Φ(x)                                         :- obj(X), hP(X,shape,sphere).               No object is sphere.
+         Object
+C3       Conditional    10   ∀x (Φ(x) → Ψ(x))                                :- obj(X), hP(X,color,blue),                 Every blue object is not in r3.
+         Object                                                              hP(X,region,r3).
+
+    SubGraph-level
+C4       Existential    4    ∃x̄ (Φ(x̄) ∧ R(x̄))                             :- #count{Z,X1,X2: . . . ,                   There exists a sphere object that is to
+                                                                             hP(Z,shape,sphere), hP(X1,region,r1),        the right of an object in r1, and also
+                                                                             hP(X2,shape,cube), hR(Z,X1,right),           behind a cube object.
+                                                                             hR(Z,X2,behind)} = 0.
+C5       Conditional    6    ∀x̄ (Φ(x̄) ∧ R(x̄) → Ψ(x̄) ∧ R′ (x̄))           :- obj(X1), obj(X2), X1!=X2,                 Only objects that are red can be to the
+                                                                             hR(X1,X2,right), not hP(X1,color,red).       right of any object.
+                                                                  ′
+C6       Exist.-        4    ∃x̄ (Φ(x̄) ∧ R(x̄) ∧ ∀ȳ (Ψ(ȳ) ∧ R (ȳ) →      cex(X) :- obj(X), obj(Y), X!=Y,              There exists some cyan object such
+         Universal           R(x̄, ȳ)))                                     hP(X,color,cyan), hP(Y,region,r1), not       that it is to the right of every object in
+                                                                             hR(X,Y,right).                               r1.
+                                                                             ok :- obj(X), hP(X,color,cyan), not
+                                                                             cex(X).
+                                                                             :- not ok.
+C7       Univ.-         6    ∀x̄ (Φ(x̄) ∧ R(x̄) →                            :- obj(X), hP(X,shape,cube), #count{Y:       Every cube object has a sphere object
+         Existential         ∃ȳ (Ψ(ȳ) ∧ R′ (ȳ) ∧ R(x̄, ȳ)))              obj(Y), X!=Y, hP(Y,shape,sphere),            behind it.
+                                                                             hR(Y,X,behind)} = 0.
+
+    Cardinality-level
+C8       Cardinality    18   |{x1 | ∃x2 , . . . , xt (Φ(x̄) ∧ R(x̄))}| θ k   :- #count{X: obj(X), hP(X,color,red)} < 3.   There are at least three red objects.
+C9       Aggregate      3    |{x1 | ∃x2 , . . . , xt (Φ(x̄) ∧ R(x̄))}|       l(N) :- N = #count{X: obj(X),                The count of sphere objects equals the
+         Comp.               θ |{y1 | ∃y2 , . . . , ym (Ψ(ȳ) ∧ R′ (ȳ))}|   hP(X,shape,sphere)}.                         count of red objects.
+                                                                             r(M) :- M = #count{Y: obj(Y),
+                                                                             hP(Y,color,red)}.
+                                                                             :- l(N), r(M), N != M.
+
+
+Table 2: Primitive constraint classes with their abstract form (notation as in §3.2), the number of templates in the
+class (#T; Appendix B), an example template from the class, and its natural language form. In the ASP column, obj,
+hP and hR abbreviate object, hasProperty and hasRelationship, auxiliary predicates are renamed, “. . . ” omits
+the object and distinctness atoms, and the anti-vacuity rules (and the corresponding part of the prompt).
+
+
+to check whether the scene graph satisfies the                                   ages (Johnson et al., 2017) captioned with C1–C9
+constraints used to generate the image. We use                                   constraints that hold in them using the same natural-
+Grounded-SAM (GSAM) (Ren et al., 2024) for                                       language templates as those used to generate the
+object detection and a zero-shot CLIP classifier                                 benchmark prompts (Appendix F).
+(Radford et al., 2021) for attribute prediction. Ap-
+pendix E details the scene graph extraction module.                              4.2     Human Evaluation
+                                                                                 To obtain a reference verdict, two annotators shared
+4        Experimental Setup                                                      the annotation of the scene graph S ∗ (I) of all 3,887
+                                                                                 generated images (GPT-Image-2: 1,018; Gemini-
+4.1        Models
+                                                                                 3-Pro-Image: 833; FLUX.1-dev: 1,018; Qwen-
+We evaluate two proprietary T2I models, GPT-                                     Image: 1,018); the counts differ because Gemini-3-
+Image-2 (OpenAI, 2026) and Gemini-3-Pro-Image                                    Pro-Image failed to generate an image for some
+(Google DeepMind, 2025), and two open-weight                                     prompts. Annotators used a dedicated web ap-
+models, FLUX.1-dev (Black Forest Labs, 2024)                                     plication to mark every object and its attributes
+and Qwen-Image (Wu et al., 2025). Each prompt                                    (Appendix G). The human verdict is h(I) = 1 iff
+consists of a fixed description of the CLEVR do-                                 S ∗ (I) |= C, or, for an unsatisfiable C, iff S ∗ (I) is
+main (the 2 × 2 regions, the allowed attribute val-                              empty; the LogicVal score v(I) is defined in the
+ues and the number of objects) followed by the                                   same way on S(I).
+                                                                                                b      The satisfaction rates in §5 are
+verbalised constraint specification; the models also                             averages of h(I).
+receive an instruction to generate an empty scene if
+the description is contradictory (prompts and gen-                               4.3     Automatic Evaluation Metrics
+eration settings in Appendix C). We generate one                                 We compare our LogicVal score with three widely
+image per prompt.                                                                used alignment metrics: (i) CLIPScore (Hessel
+   To help the open models produce CLEVR-style                                   et al., 2021): the raw cosine similarity between
+scenes with the requested vocabulary, we finetune                                image and prompt embeddings. We use Long-
+them with LoRA (Hu et al., 2022) on CLEVR im-                                    CLIP (Zhang et al., 2024) instead of standard CLIP,
+
+                                                                             5
+as it can handle our long prompts. The score               5   Results
+ranges from −1 to +1, with higher values indi-
+                                                           Single-Constraint Specifications (1SAT). Ta-
+cating greater semantic alignment between the gen-
+                                                           ble 3 reports, for each model and package, the
+erated image and the prompt. (ii) VLM-Judge
+                                                           percentage of images that satisfy all constraints
+(Lee et al., 2024): a vision-language model rates
+                                                           of their prompt, as verified by human annotation.
+prompt–image alignment from 1 to 5 using a fixed
+                                                           Appendix H.1 shows example images. On 1SAT,
+rubric, rescaled to [0, 1]. Higher scores indicate
+                                                           where each prompt specifies a single constraint in
+greater perceived satisfaction of the prompt’s con-
+                                                           addition to the object-count condition, Gemini-3-
+straints. We use GPT-4o (Hurst et al., 2024) as the
+                                                           Pro-Image satisfies the prompt in 85% of cases and
+judge. (iii) Soft-TIFA (Kamath et al., 2025): the
+                                                           GPT-Image-2 in 58%, whereas the LoRA-adapted
+prompt is decomposed into a set of sub-questions,
+                                                           open models succeed in fewer than 4%.
+each associated with an expected answer. A VQA
+model (GPT-4o) answers the sub-questions gener-                           GPT     Gemini   Flux    QwenImage
+ated with each prompt, and each answer is scored                   1SAT   0.577   0.848    0.031     0.017
+by the probability mass assigned by the model to                   3SAT   0.200   0.480    0.000     0.000
+                                                                   6SAT   0.000   0.200    0.000     0.000
+the correct answer. The scores of an image’s sub-
+questions are combined by their arithmetic mean            Table 3: Success rate per model and package (based on
+(AM), indicating atom-level correctness, or their          human judgement).
+geometric mean (GM), indicating prompt-level cor-
+rectness; GM drops sharply if any single answer is
+                                                                          GPT     Gemini   Flux    QwenImage
+wrong. The score ranges from 0 to 1, with higher
+                                                                   1SAT   0.001   0.000    0.138     0.507
+values indicating greater alignment between the                    3SAT   0.000   0.000    0.040     0.120
+generated image and the prompt. Refer Appendix                     6SAT   0.000   0.000    0.040     0.040
+
+E for more details about the implementation of the
+three metrics.                                             Table 4: Rate of images with at least one deformed
+                                                           object (based on human judgement).
+
+4.4   Meta-Evaluation                                         For the open models, part of this gap is a ren-
+We assess the alignment between automatic metrics          dering problem rather than a reasoning one. Anno-
+and human judgments using the point-biserial cor-          tators flagged deformed or unrecognisable objects
+relation and the area under the receiver operating         in 14% of FLUX.1-dev and 51% of Qwen-Image
+characteristic curve (ROC-AUC). Point-biserial             images on 1SAT, against at most 0.1% for the
+correlation measures the strength and direction of         proprietary models (Table 4). Even so, rendering
+the association between continuous metric scores           alone does not explain the gap: FLUX.1-dev ren-
+and binary human judgments, while ROC-AUC                  ders cleanly in 86% of cases yet satisfies fewer than
+measures how well a metric distinguishes between           4% of the constraints.
+positive and negative human judgments across deci-         Effect of Logical Structure. Figure 2 breaks
+sion thresholds. Higher absolute point-biserial cor-       1SAT down by constraint class. For both propri-
+relation indicates a stronger association, whereas a       etary models, object-level classes (C1–C3) are the
+higher ROC-AUC indicates better discrimination             easiest: Gemini-3-Pro-Image reaches 0.91–0.98
+with 0.5 corresponding to random performance and           and GPT-Image-2 0.72–0.75. The open models
+1.0 to perfect discrimination.                             stay below 0.1 in every class. Performance drops
+   We treat h(I) as ground truth, calling images           for subgraph-level constraints and is lowest on C5
+with h(I) = 1 human-correct (I + ) and the oth-            (conditional subgraph: GPT-Image-2 0.30, Gemini-
+ers human-incorrect (I − ), and compare it with the        3-Pro-Image 0.53) and C7 (∀∃: 0.20 and 0.67).
+score s(I) of each metric (§4.3); For every metric         Both classes require the model to keep a relation
+and model, we report (i) the point-biserial corre-         consistent across every object that matches a condi-
+lation between s and h; and (ii) the ROC-AUC               tion, which a single plausible arrangement does
+between s and h. For the binary LogicVal score,            not guarantee. The results per-template in Ap-
+we additionally report its exact agreement with            pendix H.2 shows the same pattern at finer level:
+h(I), i.e. the fraction of images on which the two         the hardest templates are those whose condition
+verdicts coincide.                                         is triggered by a relation rather than an attribute.
+
+                                                       6
+On cardinality constraints the two models diverge:                               5.3    Sensitivity to Prompt Wording
+Gemini-3-Pro-Image handles absolute counts (C8:
+                                                                                 On 1SAT, rephrasing a prompt in greater de-
+0.87) and count comparisons (C9: 1.00), whereas
+                                                                                 tail - e.g., by explicitly specifying the quantifier
+GPT-Image-2 drops to 0.58 and 0.40. This gap is
+                                                                                 scope, has little effect on performance (Figure 3).
+consistent with the counting analysis in §5.4.
+                                                                                 While GPT-Image-2 exhibits a modest improve-
+                                                                                 ment (0.58→0.61), the changes for other models
+      C1    0.75        0.98     0.05          0.00   1.0                        are negligible. Making constraints more explicit is
+      C2    0.73        0.91     0.00          0.00                              no substitute for reasoning about them.
+                                                      0.8
+      C3    0.72        0.96     0.00          0.02
+                                                                                                            short prompt         long prompt
+
+
+
+
+                                                        Exact satisfaction
+      C4    0.55        0.75     0.00          0.00   0.6
+                                                                                                                                            0.85
+      C5    0.30        0.53     0.03          0.00                               Gemini-3-Pro-Image                                       0.83
+                                                      0.4                                                                     0.58
+      C6    0.55        0.70     0.05          0.00                                     GPT-Image-2                             0.61
+      C7    0.20        0.67     0.00          0.00
+                                                                                         FLUX.1-dev 0.03
+                                                                                                     0.05
+                                                      0.2
+      C8    0.58        0.87     0.07          0.06                                                0.02
+                                                                                        Qwen-Image 0.01
+      C9    0.40        1.00     0.00          0.00   0.0
+                                                                                                  0.00      0.25        0.50        0.75           1.00
+                        i
+           GPT     Gemin       Flux         age                                                              Satisfaction rate on 1SAT
+                                         nIm
+                                      Qwe
+                                                                                 Figure 3: Success rate on 1SAT: short vs. long prompts.
+Figure 2: Success rate per constraint class (based on
+human judgement) on 1SAT. C1–C3: single objects;
+C4–C7: relations under quantifiers; C8–C9: counts.                               5.4    Counting Errors
+                                                                                 Every prompt states the number of objects in the
+                                                                                 scene, followed by a logical constraint drawn from
+5.1    Composing Multiple Constraints                                            C1 to C9 that must be satisfied by the objects. For
+We investigate whether handling multiple con-                                    example, a prompt might state: “There are 5 ob-
+straints simultaneously poses a greater challenge.                               jects in the scene. At least 2 are red”. A model
+Our results show that conjoining constraints                                     may generate an image containing at least two red
+sharply lowers success. Gemini-3-Pro-Image falls                                 objects while failing to produce five objects.
+from 0.85 on one constraint to 0.48 on three                                        Table 3 and Figure 2 require both the logical con-
+(3SAT) and 0.20 on six (6SAT). GPT-Image-2                                       straint and the object count to be satisfied. Here, we
+falls from 0.58 to 0.20 and to 0. Neither open                                   relax the count requirement to test whether models
+model satisfies a single composed specification.                                 satisfy the logical constraint even when they gener-
+These results suggest that satisfying multiple con-                              ate the wrong number of objects. This reveals cases
+straints requires explicit reasoning to guide object                             in which models satisfy the requested relations and
+arrangement during generation.                                                   attributes but not the object count.
+                                                                                    Figure 4 shows improvements under this re-
+5.2    Recognising Unsatisfiable Specifications                                  laxed evaluation. GPT-Image-2’s success rate rises
+                                                                                 from 0.58 to 0.83, while Gemini-3-Pro-Image’s in-
+None of the tested T2I models reliably detects                                   creases from 0.85 to 0.89. Object counting also lim-
+contradictory specifications. We evaluated their                                 its GPT-Image-2’s performance on the cardinality
+ability to recognise unsatisfiable constraints using                             classes (C8 and C9), whereas Gemini-3-Pro-Image
+129 prompts with no valid solution. Gemini-3-Pro-                                is already strong on them (C8: 0.87, C9: 1.00).
+Image correctly identified 23.25% of these spec-                                 The gains are more pronounced for FLUX.1-dev
+ifications, abstaining by returning a blank image                                (0.03→0.28) and Qwen-Image (0.02→0.14).
+with a white background, as instructed. In contrast,
+the other models, including GPT-Image-2, almost                                  6     Reliability of Automatic Metrics
+never abstained (at most 1%), instead generating
+scenes that necessarily violated at least one con-                               Human scene-graph annotation is costly, motivat-
+straint. The open models abstain on at most 2% of                                ing an automatic proxy. We evaluate metrics by
+specifications.                                                                  their alignment with human verdicts. Table 5 shows
+
+                                                                             7
+                                                                                                                 1.0
+                         with object count             object count ignored
+                                                                     0.85                                        0.8
+
+
+
+
+                                                                                    ROC-AUC vs. human judgment
+ Gemini-3-Pro-Image                                                    0.89
+                                                      0.58                                                       0.6
+       GPT-Image-2                                                0.83                                                                                                                          chance
+
+                        0.03                                                                                     0.4
+          FLUX.1-dev                  0.28
+                                                                                                                 0.2
+                       0.02
+       Qwen-Image              0.14
+                                                                                                                 0.0
+                  0.00           0.25        0.50        0.75            1.00                                             CLIP       VLM-Judge      Soft-TIFA (GM)     Soft-TIFA (AM)   Perception
+                                  Satisfaction rate on 1SAT                                                                         GPT          Gemini         Flux          QwenImage
+
+
+Figure 4: Satisfaction rate on 1SAT with and without                                Figure 5: ROC-AUC of each metric against the human
+the object-count requirement.                                                       verdict on 1SAT; the dashed line marks chance (0.5).
+
+ Metric                  GPT          Gemini         Flux    QwenImage                                                           GPT       Gemini             Flux            QwenImage
+
+ ClipScore              -0.081         0.158        0.046        0.009                                                 1SAT      0.744      0.323            0.154                  0.141
+ VLM-Judge              0.127          0.152        0.217        0.160                                                 3SAT      0.600      0.560            0.040                  0.200
+ Soft-TIFA (AM)         0.247          0.128        0.276        0.223                                                 6SAT      0.480      0.680            0.160                  0.240
+ Soft-TIFA (GM)         0.289          0.216        0.246        0.206
+ LogicVal               0.970          0.700        0.712        0.522              Table 7: Scene Graph Extraction Accuracy: percentage
+                                                                                    of predicted graphs matching human annotations.
+Table 5: Point-biserial correlation with human scores.
+
+                                                                                       Exact recovery of the full object list (count,
+point-biserial correlation and Figure 5 reports ROC-                                colour, shape, material and region) also degrades
+AUC on 1SAT (710 images per model). CLIP-                                           when the image generated is complex due to factors
+Score is at chance level for every model (0.46–                                     like object occlusion. Table 7 shows the accuracy
+0.57). It scores satisfying and violating images al-                                in extracting the scene graph. However, only the
+most identically (0.22 on average for both). VLM-                                   attributes mentioned in a constraint affect its final
+Judge and Soft-TIFA depend on the T2I model.                                        verdict, so the verdict can be right even when the
+They differentiate correct from incorrect images                                    entire object list is not. This highlights the impor-
+reasonably well for FLUX.1-dev and Qwen-Image                                       tance of improving object detection and attribute
+(AUC 0.80–0.92). For GPT-Image-2 and Gemini-                                        prediction to ensure reliable perception and, ulti-
+3-Pro-Image they are close to chance (0.54–0.68).                                   mately, more accurate LogicVal scores.
+The open models’ failures are blatant: missing or
+deformed objects, or the wrong scene altogether.                                    7                                  Conclusion
+The proprietary models’ failures are subtle: for ex-
+                                                                                    We formulate text-to-image generation under
+ample a relation being reversed. The VLM-based
+                                                                                    explicit logical requirements as a constraint-
+metrics catch the first kind and miss the second, so
+                                                                                    satisfaction problem and introduce LogicVal, a
+they are least informative exactly where the mod-
+                                                                                    solver-labelled benchmark for evaluating constraint
+els are strongest. LogicVal reaches an AUC of
+                                                                                    satisfaction through scene-graph verification. Our
+0.88–0.98 for all four models.
+                                                                                    results show that current generators struggle with
+                GPT           Gemini         Flux      QwenImage                    exact counts, universally quantified relations, and
+     1SAT       96.34          90.70         97.61           96.62
+                                                                                    composed constraints, and rarely recognise con-
+     3SAT         96            88            100             100                   tradictions. Widely used alignment metrics fail
+     6SAT        100            92            100             100                   to capture these shortcomings for the strongest
+                                                                                    models, whereas LogicVal provides a more effec-
+Table 6: Percentage of images both LogicVal and human
+                                                                                    tive, though still imperfect, means of assessing
+accept or reject.
+                                                                                    constraint satisfaction. In future work, we aim
+                                                                                    to extend LogicVal to a probabilistic formulation
+  Since both LogicVal and human scores are bi-                                      that accounts for uncertainty in object attribute
+nary, we show the percentage of exact agreement                                     prediction. Future work will also explore gener-
+between the scores in Table 6. The errors in Logic-                                 ation pipelines that integrate probabilistic LogicVal
+Val judgement are mostly false positives - in other                                 scores for solver-guided feedback.
+words, it accepts scenes that humans reject.
+
+                                                                                8
+8   Limitations                                             and the generated images will be released under
+                                                            CC BY 4.0 with the camera-ready version.
+Synthetic Domain. LogicVal is instantiated in
+the CLEVR domain, enabling controlled evalua-
+tion of logical constraints but limiting coverage of        References
+real-world concepts and scenes. Future work will            Savitha Sam Abraham, Marjan Alirezaie, and Luc
+extend the framework to domains such as health-               De Raedt. 2024. CLEVR-POC: Reasoning-intensive
+care, architecture, and virtual try-on.                       visual question answering in partially observable en-
+                                                              vironments. In Proceedings of the 2024 Joint In-
+Human Annotation Errors. Human judgement                      ternational Conference on Computational Linguis-
+is susceptible to perceptual errors in colour, mate-          tics, Language Resources and Evaluation (LREC-
+                                                              COLING 2024).
+rial, and spatial relations. Human judgments may,
+for example, confuse cyan with blue or misiden-             Black Forest Labs. 2024. FLUX.1. https://github.
+tify materials and object positions. Resource con-            com/black-forest-labs/flux.
+straints limited annotation to two annotators (two of       Kaijie Chen, Zihao Lin, Zhiyang Xu, Ying Shen,
+the authors), who labelled non-overlapping subsets            Yuguang Yao, Joy Rimchala, Jiaxin Zhang, and Lifu
+of images, precluding inter-annotator agreement               Huang. 2025. R2I-Bench: Benchmarking reasoning-
+analysis.                                                     driven text-to-image generation. In Proceedings
+                                                              of the 2025 Conference on Empirical Methods in
+Limitations of LogicVal score. LogicVal score’s               Natural Language Processing, pages 12595–12630,
+                                                              Suzhou, China. Association for Computational Lin-
+performance degrades on complex scenes involv-                guistics.
+ing occlusion or deformed objects. For example,
+some generated shapes, particularly from open               Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt,
+                                                              and David K Duvenaud. 2018. Neural ordinary dif-
+models, appeared to combine features of cylinders             ferential equations. In Advances in Neural Informa-
+and cubes, leading the detector to assign one of              tion Processing Systems (NeurIPS), volume 31, pages
+these labels to shapes that fit neither category. Re-         6571–6583.
+liable evaluation also depends on improvements
+                                                            Thomas Eiter, Giovambattista Ianni, and Thomas Kren-
+in both domain-specific detection models, particu-            nwallner. 2009. Answer set programming: A primer.
+larly when extending LogicVal to domains such as              In Reasoning Web International Summer School,
+healthcare, and open-vocabulary object detection              pages 40–110. Springer.
+and attribute classification.                               Omar Elfatairy, Maria A. Bravo, Jessica Bader, and
+                                                             Zeynep Akata. 2026. NegT2IBench: When negation
+Model Configurations. For cost reasons, propri-              changes the picture. a polarity benchmark for text-to-
+etary models were evaluated at lower-cost settings           image models. arXiv preprint arXiv:2610.03084.
+(GPT-Image-2 at a low-quality tier and Gemini-
+                                                            Martin Gebser, Roland Kaminski, Benjamin Kaufmann,
+3-Pro-Image at 1K resolution), with one image                 and Torsten Schaub. 2019. Multi-shot ASP solving
+generated per prompt. Higher-quality settings or             with clingo. Theory and Practice of Logic Program-
+best-of-n sampling could change the absolute re-              ming, 19(1):27–82.
+sults.
+                                                            Dhruba Ghosh, Hannaneh Hajishirzi, and Ludwig
+                                                              Schmidt. 2023. GenEval: An object-focused frame-
+9   Ethical considerations                                    work for evaluating text-to-image alignment. In Ad-
+                                                              vances in Neural Information Processing Systems
+LogicVal contains only synthetic geometric scenes             (NeurIPS), Datasets and Benchmarks Track.
+and templated prompts; it involves no personal data
+and no depictions of people. Proprietary models             Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza,
+                                                               Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron C.
+were accessed through their public APIs in accor-              Courville, and Yoshua Bengio. 2014. Generative
+dance with their terms of use.                                 adversarial nets. In Advances in Neural Information
+  The 3,887 generated images were annotated by                 Processing Systems, volume 27, pages 2672–2680.
+two of the authors, who were fully aware of the                Curran Associates, Inc.
+purpose of the annotation; no crowdworkers or               Google DeepMind. 2025. Gemini 3 Pro Image. https:
+external annotators were involved, and the images             //ai.google.dev/gemini-api/docs/models.
+contain only synthetic geometric objects.
+                                                            Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan
+  The code is available at LogicVal-repo under                 Le Bras, and Yejin Choi. 2021. CLIPScore: A
+the MIT license; the benchmark, the annotations                reference-free evaluation metric for image captioning.
+
+
+                                                        9
+  In Proceedings of the 2021 Conference on Empirical           GenAI-Bench: Evaluating and improving compo-
+  Methods in Natural Language Processing (EMNLP),              sitional text-to-visual generation. arXiv preprint
+  pages 7514–7528.                                             arXiv:2406.13743.
+
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020.             Qi Li, Shuwen Qiu, Kee Kiat Koo, Julien Han, and
+  Denoising diffusion probabilistic models. In Ad-             Karim Bouyarmane. 2026. Dit-vton: Diffusion trans-
+  vances in Neural Information Processing Systems,             former framework for unified multi-category virtual
+  volume 33, pages 6840–6851. Curran Associates,               try-on and virtual try-all with integrated image edit-
+  Inc.                                                         ing. In 2026 IEEE/CVF Winter Conference on Appli-
+                                                               cations of Computer Vision (WACV), pages 202–211.
+Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan              IEEE.
+  Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+  Weizhu Chen. 2022. LoRA: Low-rank adaptation of            Zhiqiu Lin, Deepak Pathak, Baiqi Li, Jiayao Li, Xide
+  large language models. In International Conference           Xia, Graham Neubig, Pengchuan Zhang, and Deva
+  on Learning Representations (ICLR).                          Ramanan. 2024. Evaluating text-to-visual generation
+                                                               with image-to-text generation. In European Confer-
+Kaiyi Huang, Chengqi Duan, Kaiyue Sun, Enze                    ence on Computer Vision, pages 366–384. Springer.
+  Xie, Zhenguo Li, and Xihui Liu. 2025. T2i-
+  compbench++: An enhanced and comprehensive                 Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Max-
+  benchmark for compositional text-to-image gener-             imilian Nickel, and Matt Le. 2023. Flow matching
+  ation. IEEE Transactions on Pattern Analysis and             for generative modeling. In International Conference
+  Machine Intelligence, 47(5):3563–3579.                       on Learning Representations (ICLR).
+
+Kaiyi Huang, Kaiyue Sun, Enze Xie, Zhenguo Li, and           Jun Ni. 2025. An ai toolchain framework for optimizing
+  Xihui Liu. 2023. T2I-CompBench: A comprehen-                 the architectural design process. Journal of Frontiers
+  sive benchmark for open-world compositional text-            in Science and Engineering, 1(9):15–20.
+  to-image generation. In Advances in Neural Infor-
+  mation Processing Systems (NeurIPS), Datasets and          OpenAI. 2026. GPT-Image-2. https://platform.
+  Benchmarks Track.                                            openai.com/docs/models.
+
+Aaron Hurst, Adam Lerer, Adam P Goucher, Adam                Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+  Perelman, Aditya Ramesh, Aidan Clark, AJ Os-                 Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-
+  trow, Akila Welihinda, Alan Hayes, Alec Radford,             try, Amanda Askell, Pamela Mishkin, Jack Clark,
+  et al. 2024. Gpt-4o system card. arXiv preprint              Gretchen Krueger, and Ilya Sutskever. 2021. Learn-
+  arXiv:2410.21276.                                            ing transferable visual models from natural language
+                                                               supervision. In Proceedings of the 38th International
+Justin Johnson, Bharath Hariharan, Laurens van der             Conference on Machine Learning (ICML).
+  Maaten, Li Fei-Fei, C. Lawrence Zitnick, and Ross
+  Girshick. 2017. CLEVR: A diagnostic dataset for            Tianhe Ren, Shilong Liu, Ailing Zeng, Jing Lin, Kun-
+  compositional language and elementary visual rea-            chang Li, He Cao, Jiayu Chen, Xinyu Huang, Yukang
+  soning. In Proceedings of the IEEE Conference on             Chen, Feng Yan, et al. 2024. Grounded sam: As-
+  Computer Vision and Pattern Recognition (CVPR),              sembling open-world models for diverse visual tasks.
+  pages 2901–2910.                                             arXiv preprint arXiv:2401.14159.
+
+Ivana Kajić, Olivia Wiles, Isabela Albuquerque,             Danilo Jimenez Rezende and Shakir Mohamed. 2015.
+   Matthias Bauer, Su Wang, Jordi Pont-Tuset, and              Variational inference with normalizing flows. In Pro-
+   Aida Nematzadeh. 2024. Evaluating numerical rea-            ceedings of the 32nd International Conference on Ma-
+   soning in text-to-image models. arXiv preprint              chine Learning (ICML), volume 37 of JMLR Work-
+   arXiv:2406.14774.                                           shop and Conference Proceedings, pages 1530–1538,
+                                                               Lille, France. JMLR.org.
+Amita Kamath, Kai-Wei Chang, Ranjay Krishna, Luke
+ Zettlemoyer, Yushi Hu, and Marjan Ghazvinine-               David Soldani. 2026. Claude code complete user hand-
+ jad. 2025. Geneval 2: Addressing benchmark                    book. arXiv preprint arXiv:2608.26742.
+ drift in text-to-image evaluation. arXiv preprint
+ arXiv:2512.16853.                                           Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020.
+                                                                Denoising diffusion implicit models. arXiv preprint
+Seongyun Lee, Seungone Kim, Sue Hyun Park, Gee-                 arXiv:2010.02502.
+  wook Kim, and Minjoon Seo. 2024. Prometheus-
+  vision: Vision-language model as a judge for fine-         Kaiyue Sun, Rongyao Fang, Chengqi Duan, Xian Liu,
+  grained evaluation. In Findings of the Association           and Xihui Liu. 2025. T2I-ReasonBench: Bench-
+  for Computational Linguistics: ACL 2024.                     marking reasoning-informed text-to-image genera-
+                                                               tion. arXiv preprint arXiv:2508.17472.
+Baiqi Li, Zhiqiu Lin, Deepak Pathak, Jiayao Li, Yixin
+  Fei, Kewen Wu, Tiffany Ling, Xide Xia, Pengchuan           Mohamad-Hani Temsah, Abdullah N Alhuzaimi, Mo-
+  Zhang, Graham Neubig, and Deva Ramanan. 2024.               hammed Almansour, Fadi Aljamaan, Khalid Alhasan,
+
+
+                                                        10
+  Munirah A Batarfi, Ibraheem Altamimi, Amani Al-
+  harbi, Adel Abdulaziz Alsuhaibani, Leena Alwakeel,
+  et al. 2024. Art or artifact: evaluating the accuracy,
+  appeal, and educational value of ai-generated im-
+  agery in dall· e 3 for illustrating congenital heart
+  diseases. Journal of Medical Systems, 48(1):54.
+Aaron van den Oord, Oriol Vinyals, and Koray
+  Kavukcuoglu. 2017. Neural discrete representation
+  learning. In Advances in Neural Information Process-
+  ing Systems (NIPS), volume 30, pages 6306–6315.
+  Curran Associates, Inc.
+Chenfei Wu, Jiahao Li, Jingren Zhou, Junyang Lin,
+  Kaiyuan Gao, Kun Yan, Sheng-ming Yin, Shuai Bai,
+  Xiao Xu, Yilei Chen, et al. 2025. Qwen-image tech-
+  nical report. arXiv preprint arXiv:2508.02324.
+Beichen Zhang, Pan Zhang, Xiaoyi Dong, Yuhang Zang,
+  and Jiaqi Wang. 2024. Long-CLIP: Unlocking the
+  long-text capability of CLIP. In European Confer-
+  ence on Computer Vision (ECCV).
+Daoan Zhang, Che Jiang, Ruoshi Xu, Biaoxiang Chen,
+  Zijian Jin, Yutian Lu, Jianguo Zhang, Liang Yong,
+  Jiebo Luo, and Shengda Luo. 2025. Worldgen-
+  bench: A world-knowledge-integrated benchmark
+  for reasoning-driven text-to-image generation. arXiv
+  preprint arXiv:2505.01490.
+
+
+
+
+                                                           11
+A   Background ASP Program                                    hasRelationship(X2,X1,R), X1 != X2.
+
+                                                           % Inverse
+Every program solved by CLINGO consists of a               hasRelationship(X1,X2,left) :-
+domain specification, the background program, and              hasRelationship(X2,X1,right).
+                                                           hasRelationship(X1,X2,right) :-
+the instantiated constraint templates (Table 2).               hasRelationship(X2,X1,left).
+                                                           hasRelationship(X1,X2,front) :-
+                                                               hasRelationship(X2,X1,behind).
+Domain The domain identifies the type of ob-               hasRelationship(X1,X2,behind) :-
+jects, attributes and possible values for each at-             hasRelationship(X2,X1,front).
+
+tribute. The CLEVR domain is represented in ASP            % Transitivity
+                                                           hasRelationship(X1,X3,left) :-
+as:                                                            hasRelationship(X1,X2,left),
+                                                               hasRelationship(X2,X3,left),
+                                                               X1 != X2, X2 != X3.
+                                                           hasRelationship(X1,X3,behind) :-
+ property(color,gray). property(color,red).
+                                                               hasRelationship(X1,X2,behind),
+ property(color,blue). property(color,green).
+                                                               hasRelationship(X2,X3,behind),
+ property(color,brown). property(color,cyan).
+                                                               X1 != X2, X2 != X3.
+ property(color,purple). property(color,yellow).
+ property(shape,cube). property(shape,sphere).
+ property(shape,cylinder).
+ property(material,rubber).                                  The above definition allows deriving the spatial
+ property(material,metal).
+ property(region,r0). property(region,r1).                relations between objects based on the regions they
+ property(region,r2). property(region,r3).
+                                                          are placed. For example, since region r0 is left of
+ 1 { hasProperty(X,color,V) :                             region r1, an object placed in the former region
+       property(color,V) } 1 :- object(X).
+ 1 { hasProperty(X,shape,V) :                             is also left of an object placed in the latter region.
+       property(shape,V) } 1 :- object(X).
+ 1 { hasProperty(X,material,V) :                          Every pair of distinct objects is ordered along both
+       property(material,V) } 1 :- object(X).             axes, following anti-symmetry, inverse and transi-
+ 1 { hasProperty(X,region,V) :
+       property(region,V) } 1 :- object(X).               tivity axioms.
+
+   The spatial relations in CLEVR are defined as          B   ASP Constraint Templates
+follows:
+                                                          The constraint templates are represented in ASP.
+ % Region layout (2x2 grid)
+                                                          An ASP template has placeholders for properties
+ % r0=top-left | r1=top-right                             (P’), values (V’), directions (D’) and counts (N’),
+ % r2=bot-left | r3=bot-right
+ right_R(r1,r0). right_R(r3,r0).                          that are filled at random; comparisons such as
+ right_R(r1,r2). right_R(r3,r2).
+ left_R(R1,R2) :- right_R(R2,R1).                         V1’!=V2’ exclude degenerate instances. Rules
+ front_R(r2,r0). front_R(r3,r0).
+ front_R(r2,r1). front_R(r3,r1).
+                                                          marked anti-vacuity require at least one object
+ behind_R(R1,R2) :- front_R(R2,R1).                       that triggers the condition of a universal constraint;
+ % Relations derived from the regions                     without them, a scene could be vacuously true, for
+ hasRelationship(X,Y,left) :-                             instance, scene could satisfy “every blue sphere is
+     object(X), object(Y), X != Y,
+     hasProperty(X,region,R1),                            metal” simply by containing no blue sphere. Fol-
+     hasProperty(Y,region,R2), left_R(R1,R2).
+ hasRelationship(X,Y,right) :-                            lowing is the list of templates.
+     object(X), object(Y), X != Y,
+     hasProperty(X,region,R1),
+     hasProperty(Y,region,R2), right_R(R1,R2).             C1_1prop
+ hasRelationship(X,Y,front) :-                             :- #count { X : object(X),
+     object(X), object(Y), X != Y,                             hasProperty(X, P1', V1')} = 0.
+     hasProperty(X,region,R1),
+     hasProperty(Y,region,R2), front_R(R1,R2).             C1_1prop_2val_neg
+ hasRelationship(X,Y,behind) :-                            :- #count {X: object(X),
+     object(X), object(Y), X != Y,                             not hasProperty(X, P1', V1'),
+     hasProperty(X,region,R1),                                 not hasProperty(X, P1', V2'), V1'!=V2'} = 0.
+     hasProperty(Y,region,R2),
+     behind_R(R1,R2).                                      C1_1prop_3val_neg
+                                                           :- #count {X: object(X),
+ % Every pair is ordered on both axes                          not hasProperty(X, P1', V1'),
+ hasRelationship(X,Y,left);                                    not hasProperty(X, P1', V2'),
+   hasRelationship(X,Y,right) :-                               not hasProperty(X, P1', V3'), V1'!=V2',
+     object(X), object(Y), X != Y,                             V1'!=V3', V2'!=V3'} = 0.
+     hasProperty(X,region,R1),
+     hasProperty(Y,region,R2).                             C1_1prop_neg
+ hasRelationship(X,Y,front);                               :- #count {X: object(X),
+   hasRelationship(X,Y,behind) :-                              not hasProperty(X, P1', V1')} = 0.
+     object(X), object(Y), X != Y,
+     hasProperty(X,region,R1),                             C1_2prop
+     hasProperty(Y,region,R2).                             :- #count { X : object(X),
+                                                               hasProperty(X, P1', V1'),
+ % Anti-symmetry                                               hasProperty(X, P2', V2'), P1'!=P2'} = 0.
+ :- hasRelationship(X1,X2,R),
+
+
+
+
+                                                     12
+C1_2prop_mix_neg                                          :- object(X), hasProperty(X, P1', V1'),
+:- #count {X: object(X), hasProperty(X, P1', V1'),            not hasProperty(X, P2', V2').
+    not hasProperty(X, P2', V2'), P1'!=P2'} = 0.          % anti-vacuity
+                                                          :- #count {X: object(X),
+C1_2prop_neg                                                  hasProperty(X, P1', V1')} = 0.
+:- #count {X: object(X),
+    not hasProperty(X, P1', V1'),                         C3_1propA_1prop_neg
+    not hasProperty(X, P2', V2'), P1'!=P2'} = 0.          :- object(X), hasProperty(X, P1', V1'),
+                                                              hasProperty(X, P2', V2').
+C1_3prop                                                  % anti-vacuity
+:- #count { X : object(X),                                :- #count {X: object(X),
+    hasProperty(X, P1', V1'),                                 hasProperty(X, P1', V1')} = 0.
+    hasProperty(X, P2', V2'),
+    hasProperty(X, P3', V3'), P1'!=P2', P1'!=P3',         C3_1propA_2propC
+    P2'!=P3'} = 0.                                        :- object(X), hasProperty(X, P1', V1'), P1'!=P2',
+                                                              P1'!=P3', P2'!=P3',
+C1_3prop_val_mix_neg                                          #count{ 1 : hasProperty(X, P2', V2');
+:- #count {X: object(X), hasProperty(X, P1', V1'),            2 : hasProperty(X, P3', V3') } != 2.
+    hasProperty(X, P2', V2'),                             % anti-vacuity
+    not hasProperty(X, P3', V3'),                         :- #count {X: object(X),
+    not hasProperty(X, P3', V4'), P1'!=P2',                   hasProperty(X, P1', V1')} = 0.
+    P1'!=P3', P2'!=P3', V3'!=V4'} = 0.
+                                                          C3_1propA_3propC
+C1_4prop                                                  :- object(X), hasProperty(X, P1', V1'), P1'!=P2',
+:- #count { X : object(X),                                    P1'!=P3', P1'!=P4', P2'!=P3', P2'!=P4',
+    hasProperty(X, P1', V1'),                                 P3'!=P4',
+    hasProperty(X, P2', V2'),                                 #count{ 1 : hasProperty(X, P2', V2');
+    hasProperty(X, P3', V3'),                                 2 : hasProperty(X, P3', V3');
+    hasProperty(X, P4', V4'), P1'!=P2', P1'!=P3',             3 : hasProperty(X, P4', V4')} != 3.
+    P1'!=P4', P2'!=P3', P2'!=P4', P3'!=P4'} = 0.          % anti-vacuity
+                                                          :- #count {X: object(X),
+C1_4prop_mix_neg                                              hasProperty(X, P1', V1')} = 0.
+:- #count {X: object(X), hasProperty(X, P1', V1'),
+    hasProperty(X, P2', V2'),                             C3_1propA_neg_1propC
+    not hasProperty(X, P3', V3'),                         :- object(X), not hasProperty(X, P1', V1'),
+    not hasProperty(X, P4', V4'), P1'!=P2',                   not hasProperty(X, P2', V2').
+    P1'!=P3', P1'!=P4', P2'!=P3', P2'!=P4',               % anti-vacuity
+    P3'!=P4'} = 0.                                        :- #count {X: object(X),
+                                                              not hasProperty(X, P1', V1')} = 0.
+C2_1prop
+:- object(X), not hasProperty(X, P1', V1').               C3_2propA_1propC
+                                                          :- object(X), hasProperty(X, P1', V1'),
+C2_1prop_2val_neg                                             hasProperty(X, P2', V2'),
+:- object(X), V1'!=V2',                                       not hasProperty(X, P3', V3'), P1'!=P2',
+    1 {hasProperty(X, P1', V1');                              P1'!=P3', P2'!=P3'.
+    hasProperty(X, P1', V2')}.                            % anti-vacuity
+                                                          :- #count {X: object(X), hasProperty(X, P1', V1'),
+C2_1prop_neg                                                  hasProperty(X, P2', V2')} = 0.
+:- object(X), hasProperty(X, P1', V1').
+                                                          C3_2propA_2propC
+C2_2prop                                                  :- object(X), hasProperty(X, P1', V1'),
+:- object(X), P1'!= P2',                                      hasProperty(X, P2', V2'), P1'!=P2', P1'!=P3',
+    #count{1 : hasProperty(X, P1', V1');                      P2'!=P3', P1'!=P4', P2'!=P4', P3'!=P4',
+    2 : hasProperty(X, P2', V2')} != 2.                       #count{ 1 : hasProperty(X, P3', V3');
+                                                              2 : hasProperty(X, P4', V4') } != 2.
+C2_2prop_mix_neg                                          % anti-vacuity
+:- #count{X: object(X), hasProperty(X, P1', V1'),         :- #count {X: object(X), hasProperty(X, P1', V1'),
+    not hasProperty(X, P2', V2'), P1'!=P2'}>0.                hasProperty(X, P2', V2')} = 0.
+
+C2_2prop_neg                                              C3_2propA_neg_2propC
+:- #count{X: object(X), hasProperty(X, P1', V1'),         :- object(X), hasProperty(X, P1', V1'),
+    hasProperty(X, P2', V2'), P1'!=P2'}>0.                    not hasProperty(X, P2', V2'), P1'!=P2',
+                                                              P1'!=P3', P2'!=P3', P1'!=P4', P2'!=P4',
+C2_3prop                                                      P3'!=P4',
+:- object(X), P1'!=P2', P2'!=P3', P1'!=P3',                   #count{ 1 : hasProperty(X, P3', V3');
+    #count{1 : hasProperty(X, P1', V1');                      2 : hasProperty(X, P4', V4') } != 2.
+    2 : hasProperty(X, P2', V2');                         % anti-vacuity
+    3 : hasProperty(X, P3', V3')} != 3.                   :- #count {X: object(X), hasProperty(X, P1', V1'),
+                                                              not hasProperty(X, P2', V2')} = 0.
+C2_4prop
+:- object(X), P1'!=P2', P1'!=P3', P1'!=P4',               C3_3propA_1propC
+    P2'!=P3', P2'!=P4', P3'!=P4',                         :- object(X), hasProperty(X, P1', V1'),
+    #count{1 : hasProperty(X, P1', V1');                      hasProperty(X, P2', V2'),
+    2 : hasProperty(X, P2', V2');                             hasProperty(X, P3', V3'),
+    3 : hasProperty(X, P3', V3');                             not hasProperty(X, P4', V4'), P1'!=P2',
+    4 : hasProperty(X, P4', V4')} != 4.                       P1'!=P3', P2'!=P3', P1'!=P4', P2'!=P4',
+                                                              P3'!=P4'.
+C2_4prop_neg                                              % anti-vacuity
+:- #count{X: object(X), hasProperty(X, P1', V1'),         :- #count {X: object(X), hasProperty(X, P1', V1'),
+    hasProperty(X, P2', V2'),                                 hasProperty(X, P2', V2'),
+    not hasProperty(X, P3', V3'),                             hasProperty(X, P3', V3')} = 0.
+    not hasProperty(X, P4', V4'), P1'!=P2',
+    P1'!=P3', P1'!=P4', P2'!=P3', P2'!=P4',               C3_3propA_1propC_neg
+    P3'!=P4'}>0.                                          :- object(X), hasProperty(X, P1', V1'),
+                                                              hasProperty(X, P2', V2'),
+C3_1propA_1propC                                              hasProperty(X, P3', V3'),
+
+
+
+
+                                                     13
+    hasProperty(X, P4', V4'), P1'!=P2', P1'!=P3',            X1 != X2, hasRelationship(X1, X2, D1')} = 0.
+    P2'!=P3', P1'!=P4', P2'!=P4', P3'!=P4'.
+% anti-vacuity                                            C5_triple_propA_RelC
+:- #count {X: object(X), hasProperty(X, P1', V1'),        :- object(X1), object(X2), object(X3), X1!=X2,
+    hasProperty(X, P2', V2'),                                 X2!=X3, X1!=X3, hasProperty(X1, P1', V1'),
+    hasProperty(X, P3', V3')} = 0.                            hasProperty(X2, P2', V2'),
+                                                              hasProperty(X3, P3', V3'), V1'!=V2', V2'!=V3',
+C4_1prop_2hop                                                 V1'!=V3',
+:- #count { X1, X2, X3 : object(X1), object(X2),              #count{ 1 : hasRelationship(X1, X2, D1');
+    object(X3), X1 != X2, X2 != X3, X1 != X3,                 2 : hasRelationship(X2, X3, D2') } != 2.
+    hasProperty(X1, P1', V1'),                            % anti-vacuity
+    hasProperty(X2, P2', V2'),                            :- #count {X1, X2, X3: object(X1), object(X2),
+    hasProperty(X3, P3', V3'),                                object(X3), X1!=X2, X1!=X3, X2!=X3,
+    hasRelationship(X1, X2, D1'),                             hasProperty(X1, P1', V1'),
+    hasRelationship(X2, X3, D2'), V1'!=V2',                   hasProperty(X2, P2', V2'),
+    V1'!=V3', V2'!=V3' } = 0.                                 hasProperty(X3, P3', V3'), V1'!=V2', V2'!=V3',
+                                                              V1'!=V3'} = 0.
+C4_1prop_2hop_mix
+:- #count { X1, X2, X3 : object(X1), object(X2),          C5_triple_propRelA_relC
+    object(X3), X1 != X2, X2 != X3, X1 != X3,             :- object(X1), object(X2), object(X3), X1!= X2,
+    hasProperty(X1, P1', V1'),                                X2!= X3, X1!= X3, hasProperty(X1, P1', V1'),
+    hasProperty(X2, P2', V2'),                                hasProperty(X2, P2', V2'),
+    not hasProperty(X3, P3', V3'),                            hasProperty(X3, P3', V3'),
+    hasRelationship(X1, X2, D1'),                             hasRelationship(X1, X2, D1'),
+    hasRelationship(X2, X3, D2'), V1'!=V2'} = 0.              not hasRelationship(X2, X3, D2'), V1' != V2',
+                                                              V2' != V3', V1' != V3'.
+C4_1prop_shared                                           % anti-vacuity
+:- #count {Z, X1, X2 : object(Z), object(X1),             :- #count {X1, X2, X3: object(X1), object(X2),
+    object(X2), Z != X1, Z != X2, X1 != X2,                   object(X3), X1!=X2, X1!=X3, X2!=X3,
+    hasProperty(X1, P1', V1'),                                hasProperty(X1, P1', V1'),
+    hasProperty(X2, P2', V2'),                                hasProperty(X2, P2', V2'),
+    hasProperty(Z, P3', V3'),                                 hasProperty(X3, P3', V3'),
+    hasRelationship(Z, X1, D1'),                              hasRelationship(X1, X2, D1'), V1'!=V2',
+    hasRelationship(Z, X2, D2'), V1'!=V2',                    V2'!=V3', V1'!=V3'} = 0.
+    V1'!=V3', V2'!=V3' } = 0.
+                                                          C6_1prop
+C4_1prop_shared_mix                                       c6_1_prop_counterexample(X) :- object(X),
+:- #count {Z, X1, X2 : object(Z), object(X1),                 object(Y), X!=Y, hasProperty(X, P1', V1'),
+    object(X2), Z != X1, Z != X2, X1 != X2,                   hasProperty(Y, P2', V2'),
+    hasProperty(X1, P1', V1'),                                not hasRelationship(X, Y, D1'), V1'!=V2'.
+    not hasProperty(X2, P2', V2'),                        c6_1_prop_satisfied :- object(X),
+    hasProperty(Z, P3', V3'),                                 hasProperty(X, P1', V1'),
+    hasRelationship(Z, X1, D1'),                              not c6_1_prop_counterexample(X).
+    hasRelationship(Z, X2, D2'), V1'!=V3' } = 0.          :- not c6_1_prop_satisfied.
+                                                          % anti-vacuity
+C5_pair_propA_relC                                        :- #count{Y: object(Y),
+:- object(X1), object(X2), X1 != X2,                          hasProperty(Y, P2', V2')}=0.
+    hasProperty(X1, P1', V1'),
+    hasProperty(X2, P2', V2'), V1'!=V2',                  C6_1prop_neg
+    not hasRelationship(X1, X2, D1').                     c6_forbid_1_prop_counterexample(X) :- object(X),
+% anti-vacuity                                                object(Y), X!=Y, hasProperty(X, P1', V1'),
+:- #count {X1, X2: object(X1), object(X2),                    not hasProperty(Y, P2', V2'),
+    X1!= X2, hasProperty(X1, P1', V1'),                       not hasRelationship(X, Y, D1').
+    hasProperty(X2, P2', V2'), V1'!=V2'} = 0.             c6_forbid_1_prop_satisfied :- object(X),
+                                                              hasProperty(X, P1', V1'),
+C5_pair_propRelA_RelC                                         not c6_forbid_1_prop_counterexample(X).
+:- object(X1), object(X2), X1 != X2,                      :- not c6_forbid_1_prop_satisfied.
+    hasProperty(X1, P1', V1'),                            % anti-vacuity
+    hasProperty(X2, P2', V2'), V1'!=V2',                  :- #count{Y: object(Y),
+    hasRelationship(X1, X2, D1'),                             not hasProperty(Y, P2', V2')}=0.
+    not hasRelationship(X1, X2, D2').
+% anti-vacuity                                            C6_2prop
+:- #count {X1, X2: object(X1), object(X2),                c6_2_prop_counterexample(X) :- object(X),
+    X1 != X2, hasProperty(X1, P1', V1'),                      object(Y), X!=Y, hasProperty(X, P1', V1'),
+    hasProperty(X2, P2', V2'),                                hasProperty(X, P2', V2'),
+    hasRelationship(X1, X2, D1'), V1'!=V2'} = 0.              hasProperty(Y, P3', V3'),
+                                                              hasProperty(Y, P4', V4'),
+C5_pair_propRelA_propC                                        not hasRelationship(X, Y, D1'), P1'!=P2',
+:- object(X1), object(X2), X1 != X2,                          P3'!=P4', V1'!=V3', V1'!=V4', V2'!=V3',
+    hasProperty(X1, P1', V1'),                                V2'!=V4'.
+    hasProperty(X2, P2', V2'),                            c6_2_prop_satisfied :- object(X),
+    hasRelationship(X1, X2, D1'),                             hasProperty(X, P1', V1'),
+    not hasProperty(X2, P3', V3'), V1'!=V2',                  hasProperty(X, P2', V2'), P1'!=P2',
+    P3'!=P2'.                                                 not c6_2_prop_counterexample(X).
+% anti-vacuity                                            :- not c6_2_prop_satisfied.
+:- #count {X1, X2: object(X1), object(X2),                % anti-vacuity
+    X1 != X2, hasProperty(X1, P1', V1'),                  :- #count{Y: object(Y), hasProperty(Y, P3', V3'),
+    hasProperty(X2, P2', V2'),                                hasProperty(Y, P4', V4'), P3'!=P4'}=0.
+    hasRelationship(X1, X2, D1'), V1'!=V2'} = 0.
+                                                          C6_2prop_neg
+C5_pair_relA_propC                                        c6_forbid_2_prop_counterexample(X) :- object(X),
+:- object(X1), object(X2), X1 != X2,                          object(Y), X!=Y, hasProperty(X, P1', V1'),
+    hasRelationship(X1, X2, D1'),                             hasProperty(X, P2', V2'),
+    not hasProperty(X1, P1', V1').                            hasProperty(Y, P3', V3'),
+% anti-vacuity                                                not hasProperty(Y, P4', V4'),
+:- #count {X1, X2: object(X1), object(X2),                    not hasRelationship(X, Y, D1'), P1'!=P2',
+
+
+
+
+                                                     14
+    P3'!=P4', V1'!=V3', V2'!=V3'.                         :- #count{X: object(X), hasProperty(X, P1', V1'),
+c6_forbid_2_prop_satisfied :- object(X),                      object(Y), X != Y, hasProperty(Y, P2', V2'),
+    hasProperty(X, P1', V1'),                                 not hasRelationship(X, Y, D1'),
+    hasProperty(X, P2', V2'), P1'!=P2',                       V1'!=V2'} < N'.
+    not c6_forbid_2_prop_counterexample(X).
+:- not c6_forbid_2_prop_satisfied.                        C8_1prop_atmost
+% anti-vacuity                                            :- #count{X: object(X),
+:- #count{Y: object(Y), hasProperty(Y, P3', V3'),             hasProperty(X, P1', V1')} > N'.
+    not hasProperty(Y, P4', V4'), P3'!=P4'}=0.
+                                                          C8_1prop_atmost_neg
+C7_1prop_exact                                            :- #count{X: object(X),
+:- object(X), hasProperty(X, P1', V1'),                       not hasProperty(X, P1', V1')} > N'.
+    #count { Y : object(Y), X != Y,
+    hasProperty(Y, P2', V2'),                             C8_1prop_atmost_relational
+    hasRelationship(Y, X, D1'), V1'!=V2'} != N'.          :- #count{X: object(X), hasProperty(X, P1', V1'),
+% anti-vacuity                                                object(Y), X != Y, hasProperty(Y, P2', V2'),
+:- #count {X: object(X),                                      hasRelationship(X, Y, D1'), V1'!=V2'} > N'.
+    hasProperty(X, P1', V1')} = 0.
+                                                          C8_1prop_atmost_relational_neg
+C7_1prop_exact_neg                                        :- #count{X: object(X), hasProperty(X, P1', V1'),
+:- object(X), hasProperty(X, P1', V1'),                       object(Y), X != Y, hasProperty(Y, P2', V2'),
+    #count { Y : object(Y), X != Y,                           not hasRelationship(X, Y, D1'),
+    not hasProperty(Y, P2', V2'),                             V1'!=V2'} > N'.
+    hasRelationship(Y, X, D1') } != N'.
+% anti-vacuity                                            C8_1prop_exact
+:- #count {X: object(X),                                  :- #count{X: object(X),
+    hasProperty(X, P1', V1')} = 0.                            hasProperty(X, P1', V1')} != N'.
+
+C7_1prop_propRel                                          C8_1prop_exact_neg
+:- object(X), hasProperty(X, P1', V1'),                   :- #count{X: object(X),
+    #count { Y : object(Y), X != Y,                           not hasProperty(X, P1', V1')} != N'.
+    hasProperty(Y, P2', V2'), V2'!=V1',
+    hasRelationship(Y, X, D1') } = 0.                     C8_1prop_exact_relational
+% anti-vacuity                                            :- #count{X: object(X), hasProperty(X, P1', V1'),
+:- #count {X: object(X),                                      object(Y), X != Y, hasProperty(Y, P2', V2'),
+    hasProperty(X, P1', V1')} = 0.                            hasRelationship(X, Y, D1'), V1'!=V2'} != N'.
+
+C7_1prop_propRel_neg                                      C8_1prop_exact_relational_neg
+:- object(X), not hasProperty(X, P1', V1'),               :- #count{X: object(X), hasProperty(X, P1', V1'),
+    #count { Y : object(Y), X != Y,                           object(Y), X != Y, hasProperty(Y, P2', V2'),
+    hasProperty(Y, P2', V2'),                                 not hasRelationship(X, Y, D1'),
+    hasRelationship(Y, X, D1') } = 0.                         V1'!=V2'} != N'.
+% anti-vacuity
+:- #count {X: object(X),                                  C8_2prop_atleast
+    not hasProperty(X, P1', V1')} = 0.                    :- #count{X: object(X), hasProperty(X, P1', V1'),
+                                                              hasProperty(X, P2', V2'), P1'!=P2'} < N'.
+C7_propRel_propRel
+:- object(X), object(Z), hasProperty(X, P1', V1'),        C8_2prop_atleast_neg
+    hasProperty(Z, P2', V2'), V1'!=V2',                   :- #count{X: object(X), hasProperty(X, P1', V1'),
+    hasRelationship(X, Z, D1'), X!=Z,                         not hasProperty(X, P2', V2'), P1'!=P2'} < N'.
+    #count { Y : object(Y), X != Y, Y!=Z,
+    hasProperty(Y, P3', V3'), V1'!=V3', V2'!=V3',         C8_2prop_atmost
+    hasRelationship(Y, X, D2') } = 0.                     :- #count{X: object(X), hasProperty(X, P1', V1'),
+% anti-vacuity                                                hasProperty(X, P2', V2'), P1'!=P2'} > N'.
+:- #count {X, Z: object(X), object(Z),
+    hasProperty(X, P1', V1'),                             C8_2prop_atmost_neg
+    hasProperty(Z, P2', V2'), V1'!=V2',                   :- #count{X: object(X), hasProperty(X, P1', V1'),
+    hasRelationship(X, Z, D1'), X!=Z} = 0.                    not hasProperty(X, P2', V2'), P1'!=P2'} > N'.
+
+C7_propRel_propRel_neg                                    C8_2prop_exact
+:- object(X), object(Z), hasProperty(X, P1', V1'),        :- #count{X: object(X), hasProperty(X, P1', V1'),
+    hasProperty(Z, P2', V2'), V1'!=V2',                       hasProperty(X, P2', V2'), P1'!=P2'} != N'.
+    hasRelationship(X, Z, D1'), X!=Z,
+    #count { Y : object(Y), X != Y, Y!=Z,                 C8_2prop_exact_neg
+    not hasProperty(Y, P3', V3'),                         :- #count{X: object(X), hasProperty(X, P1', V1'),
+    hasRelationship(Y, X, D2') } = 0.                         not hasProperty(X, P2', V2'), P1'!=P2'} != N'.
+% anti-vacuity
+:- #count {X, Z: object(X), object(Z),                    C9_1prop
+    hasProperty(X, P1', V1'),                             c9_1prop_left(N, V1') :-
+    hasProperty(Z, P2', V2'), V1'!=V2',                       N = #count { X : object(X),
+    hasRelationship(X, Z, D1'), X!=Z} = 0.                    hasProperty(X, P1', V1') }.
+                                                          c9_1prop_right(N, V2') :-
+C8_1prop_atleast                                              N = #count { Y : object(Y),
+:- #count{X: object(X),                                       hasProperty(Y, P2', V2') }.
+    hasProperty(X, P1', V1')} < N'.                       :- c9_1prop_left(N, V1'), c9_1prop_right(M, V2'),
+                                                              N!= M, V1'!=V2'.
+C8_1prop_atleast_neg                                      % anti-vacuity
+:- #count{X: object(X),                                   :- #count {X : object(X),
+    not hasProperty(X, P1', V1')} < N'.                       hasProperty(X, P1', V1')} = 0.
+
+C8_1prop_atleast_relational                               C9_2prop
+:- #count{X: object(X), hasProperty(X, P1', V1'),         c9_2prop_left(N, V1') :-
+    object(Y), X != Y, hasProperty(Y, P2', V2'),              N = #count { X : object(X),
+    hasRelationship(X, Y, D1'), V1'!=V2'} < N'.               hasProperty(X, P1', V1'),
+                                                              hasProperty(X, P2', V2'), P1'!=P2'}.
+C8_1prop_atleast_relational_neg                           c9_2prop_right(N, V3') :-
+
+
+
+
+                                                     15
+     N = #count { Y : object(Y),                                   D    Benchmark Statistics
+     hasProperty(Y, P3', V3'),
+     hasProperty(Y, P4', V4'), P4'!=P3'}.
+ :- c9_2prop_left(N, V1'), c9_2prop_right(M, V3'),                 Table 9 gives the number of prompts in each pack-
+     N!= M, V1'!=V3'.                                              age (1, 3 and 6 SAT/UNSAT). 1SAT is constructed
+ % anti-vacuity
+ :- #count {X : object(X),                                         by generating 5 instantiations of each of the 71 tem-
+     hasProperty(X, P1', V1'),
+     hasProperty(X, P2', V2'), P1'!=P2'} = 0.                      plates (71∗5 =355 prompts).Both 3SAT and 6SAT
+ C9_2prop_mix
+                                                                   have 25 prompts each. Each of the 25 instances are
+ c9_2prop_mix_left(N, V2') :-                                      constructed by combining 3 or 6 template instanti-
+     N = #count { X : object(X),
+     not hasProperty(X, P1', V1'),                                 ations (each template from a different class). The
+     hasProperty(X, P2', V2'), P1'!=P2'}.
+ c9_2prop_mix_right(N, V4') :-
+                                                                   UNSAT, 3SAT and 6SAT result from random sam-
+     N = #count { Y : object(Y),                                   pling and are not balanced across classes. Scenes
+     not hasProperty(Y, P3', V3'),
+     hasProperty(Y, P4', V4'), P4'!=P3'}.                          contain 3–9 objects. For each SAT specification,
+ :- c9_2prop_mix_left(N, V2'),
+     c9_2prop_mix_right(M, V4'), N!= M, V2'!=V4'.                  one answer set found by CLINGO is stored as a
+ % anti-vacuity                                                    hidden reference scene; it is never shown to the
+ :- #count {X : object(X),
+     not hasProperty(X, P1', V1'),                                 generators.
+     hasProperty(X, P2', V2'), P1'!=P2'} = 0.
+
+                                                                   E    Evaluation Metric Details
+C    Prompt for Image Generation                                   LogicVal Score. LogicVal evaluation involves a
+                                                                   perception stage that extracts a scene graph from
+Prompt template. Every prompt consists of a                        the generated image. The resulting scene graph is
+CLEVR domain description, the number of objects,                   then passed to the CLINGO solver alongside the
+the constraint specification, and an instruction to                constraints used to generate the image to determine
+generate an empty white scene if the description                   whether they are satisfied. In this section, we de-
+is contradictory. Only the proprietary models are                  scribe the perception pipeline used to construct the
+also asked for a white background (in italics); the                scene graph.
+open models are not, since they are fine-tuned on                  Object Detection and Bounding Boxes: We use
+CLEVR images, whose background is not white:                       Grounding DINO Ren et al., 2024 for bounding-
+                                                                   box (BB) detection, with a confidence threshold
+     Generate a CLEVR style scene with a white back-
+     ground, that is divided into 4 regions arranged in
+                                                                   of 0.15. To remove duplicate detections, we ap-
+     a 2x2 grid: r0 (top-left); r1 (top-right); r2 (bottom-        ply a post-processing step that suppresses a lower-
+     left); r3 (bottom-right). Each object has a color             confidence detection when either: its intersection
+     (one of: gray, red, blue, green, brown, purple,
+     cyan, yellow), a shape (one of: cube, cylinder,
+                                                                   over union (IoU) with a higher-confidence detec-
+     sphere), a material (one of: rubber, metal), and is           tion exceeds a specified threshold or it is mostly
+     placed in one of the 4 regions. The scene must                contained within a higher-confidence detection.
+     additionally satisfy the following constraints: The
+     scene is with ⟨ Add the number of objects here                Attribute Classification We use the CLIP model
+     ⟩ objects. ⟨Add the constraint to be satisfied                (Radford et al., 2021) (openai/clip-vit-large-
+     here⟩ If the scene description is invalid or con-             patch14) for zero-shot attribute classification. Mul-
+     tains a contradiction, generate an empty scene
+     with white background.                                        tiple views or crops of each detected object are
+                                                                   classified using different prompt templates to im-
+  For multiple-constraint specifications, the differ-              prove robustness.
+ent constraints are concatenated as a numbered list                    • Prompt-template aggregation: For each im-
+(“Constraint 1: . . . Constraint 2: . . . ”). Table 8                    age view, we classify the crop using multiple
+shows some examples of constraint specifications                         prompt templates and average the resulting
+that are placed at the ⟨Add the constraint to be                         logits across templates.
+satisfied here⟩ slot in the above prompt format.
+                                                                       • Image-view aggregation: We average the
+Generation settings. GPT-Image-2 is used at the                          aggregated logits across multiple views of
+low quality tier and 1024 × 1024, and Gemini-                            the same object. The views depend on the
+3-Pro-Image at 1K resolution. FLUX.1-dev (28                             attribute being predicted: shape - tight and
+steps, guidance 3.5) and Qwen-Image (50 steps,                           medium crops, with a grey background, colour
+true-CFG scale 4.0) generate at 1024 × 688 with                          - tight, medium, and wide crops, with a grey
+their selected LoRA weights (Appendix F).                                background, material - medium crops, with
+
+                                                              16
+C3 (template 1propA_1propC), n = 4
+ASP      :- object(X), hasProperty(X,color,green), not hasProperty(X,material,metal).
+         :- #count{X: object(X), hasProperty(X,color,green)} = 0.
+Short    At least one object is green, and every green object is also metal.
+Long     The scene must contain at least one object that is green. Whenever an object is green, it must simultaneously be metal.
+
+C7 (template 1prop_exact), n = 6
+ASP      :- object(X), hasProperty(X,region,r1), #count{Y: object(Y), X!=Y, hasProperty(Y,material,rubber), hasRelationship(Y,X,behind)} != 3.
+         :- #count{X: object(X), hasProperty(X,region,r1)} = 0.
+Short    There must be at least one object that is in r1. Every such object has exactly three rubber objects that are behind it.
+Long     The scene must contain at least one object that is in r1. Every object that is in r1 is required to have exactly three witnesses: A witness is a rubber object standing behind it.
+
+C9 (template 1prop), n = 6
+ASP      left(N) :- N = #count{X: object(X), hasProperty(X,shape,cylinder)}.
+         right(N) :- N = #count{Y: object(Y), hasProperty(Y,color,cyan)}.
+         :- left(N), right(M), N != M. :- #count{X: object(X), hasProperty(X,shape,cylinder)} = 0.
+Short    There must be at least one cylinder object. The count of cylinder objects equals the count of cyan objects.
+Long     The scene must contain at least one cylinder object. The scene enforces a balance: the cardinality of objects that are cylinder must exactly match the cardinality of objects that are cyan.
+
+
+Table 8: Three 1SAT specifications, each shown with its instantiated ASP rules, its two natural-language forms - a
+short and a long version. The second ASP rule of each example is the anti-vacuity condition.
+
+
+           Constraints per spec (m)               SAT        UNSAT          Total                              You are judging whether a generated im-
+           1                                       355              25        380                              age matches a text description. Description:
+           3                                        25              10         35                              “⟨prompt⟩”. Rate how well the image satisfies all
+           6                                        25              69         94                              the logical constraints in the description on a scale
+           Total                                   405             104        509                              of 1 (not at all) to 5 (perfect match). Respond in
+           Templates covered (1SAT)                 71              14                                         exactly this format: SCORE: ⟨1–5⟩ RATIONALE:
+                                                                                                               ⟨one sentence⟩
+        Class                C1 C2 C3 C4 C5 C6 C7 C8 C9 Total
+                                                                                                          The score returned is then rescaled to [0, 1].
+        Templates    11 9 10 4 6 4 6 18 3                                         71
+        1SAT prompts 55 45 50 20 30 20 30 90 15                                  355                  Soft-TIFA. (Kamath et al., 2025) evaluates the
+                                                                                                      correctness of a generated image by decomposing
+Table 9: Number of prompts per package (top) and per
+constraint class in 1SAT (bottom).                                                                    the original prompt into sub-questions and assess-
+                                                                                                      ing the image based on the answers to these ques-
+                                                                                                      tions. We implement Soft-TIFA using GPT-4o as
+         the original background, to preserve relevant                                                the visual question answering (VQA) backend.
+         contextual cues such as shadows and reflec-                                                     Since our prompts are generated by instantiat-
+         tions.                                                                                       ing logical constraint template, each constraint
+                                                                                                      template is also associated with a template of
+We apply softmax to the averaged logits and select                                                    sub-questions and expected answers. These tem-
+the class with the highest probability using argmax.                                                  plates are instantiated alongside the constraint tem-
+Spatial Grounding: An object’s region is the                                                          plate instantiation, yielding the corresponding sub-
+quadrant containing its bounding-box centre. The                                                      questions and expected answers for each prompt.
+spatial relations between objects are also inferred                                                   See Table 10 for examples. Rather than generating
+based on the coordinates of the bounding box cen-                                                     a complete textual response to each sub-question,
+ter.                                                                                                  the VQA model predicts a single token conditioned
+CLIPScore. We               use          LongCLIP                                                     on the image, question, and set of candidate an-
+(LongCLIP-GmP-ViT-L-14; Zhang et al., 2024),                                                          swers. The candidate answer set depends on the
+which supports text inputs of up to 248 tokens,                                                       question type. For binary questions, the candidates
+compared with the 77-token limit of standard CLIP.                                                    are yes,no or true,false. For property-value ques-
+Prompts in the 1SAT package fall within this limit,                                                   tions, the candidates correspond to the possible
+whereas those in the 3SAT and 6SAT packages                                                           values of the queried property. For cardinality ques-
+exceed it. Tokens beyond the model’s input limit                                                      tions, the candidate set consists of possible object
+are truncated during scoring, potentially resulting                                                   counts, with its size determined by max(N, 10),
+in scores that do not reflect the full prompt. We                                                     where N is the number of objects specified in the
+report the raw cosine similarity between the image                                                    prompt.
+and text CLIP embeddings, without the usual                                                              We retrieve the top-20 next-token log-
+rescaling.                                                                                            probabilities and convert them into probabilities.
+                                                                                                      For each candidate answer, we account for possible
+VLM-Judge. The judge, GPT-4o, receives the                                                            token variants and aggregate their probability mass
+image and the following instruction:                                                                  to obtain a soft score for the expected answer.
+
+                                                                                                17
+Category                        Sub-question                                                                                       Expected answer
+
+Common sub-questions
+
+Common (SAT)                    Is there any shape other than cube, sphere, or cylinder?                                           No
+Common (SAT)                    Are all objects among the following colors: gray, red, blue, green, brown, purple, cyan, or        Yes
+                                yellow?
+Common (SAT)                    True or False: All objects are either metal or rubber.                                             True
+Common (SAT)                    Is the image an empty scene with a white background?                                               No
+Common (SAT)                    How many objects are in the scene?                                                                 number_of_objects (from the
+                                                                                                                                   prompt)
+Common (UNSAT)                  Is the image an empty scene with a white background?                                               Yes
+
+Prompt-specific sub-questions
+
+Prompt: The scene must contain at least one object that is green. Whenever an object is green, it must also be metal.
+
+Sub-QA                          How many objects are green?                                                                        c>0
+Sub-QA                          How many objects are both green and metal?                                                         =c
+Sub-QA                          How many objects are green but not metal?                                                          =0
+Sub-QA                          True or False: There is at least one green object that is not metal.                               False
+
+Prompt: There must be at least one object that is in r1. Every such object has exactly three rubber objects that are behind it.
+
+Sub-QA                          How many objects that are in r1 are in the image?                                                  c>0
+Sub-QA                          True or False: If there is an object that is in r1, there is a rubber object standing behind it.   True
+Sub-QA                          If there is an object that is in r1, how many rubber objects are standing behind it?               =3
+
+
+Table 10: Common and prompt-specific sub-questions used in Soft-TIFA, along with their expected answers.
+Expected answers may be template-based, as in c > 0, where the value of c is obtained from GPT-4o. Subsequent
+references to c, such as in = c, are instantiated using the value assigned to c based on GPT-4o’s answer to the first
+sub-question.
+
+
+   For questions that ask whether the number of                                         sub-questions.
+objects is greater than zero, the score is the total
+probability assigned to positive counts, i.e., 1 −                                      F      LoRA Adaptation of the Open Models
+P (0), assuming the count distribution covers all                                       Captions. For every CLEVR training image
+possible outcomes.                                                                      (Johnson et al., 2017), the objects, attributes and
+   Count ranges. For count-comparison questions,                                        pairwise relations between objects are read from
+the score is the sum of the probabilities assigned                                      the original scene graph annotations; no pixels
+to all counts that satisfy the specified comparison.                                    are inspected. For each class C1–C9, a grounder
+For example, for the question “How many objects                                         searches this scene graph for a combination of facts
+are green?” with the expected answer being a con-                                       that makes one of the class’s patterns true. For ex-
+dition like c > 0, a model assigning P (0) = 0.10,                                      ample, if the scene graph indicates there is a red
+P (1) = 0.60, and P (2) = 0.30 receives a score of                                      cylinder, the template,
+P (1) + P (2) = 0.90.
+                                                                                            C1_1prop
+   Linked counts. Some sub-questions refer to a                                             :- #count { X : object(X), hasProperty(X, P1', V1')} = 0.
+
+count introduced by an earlier sub-question. For
+example, ‘How many objects are red?’ with the                                           finds a match with the instantiation (P1′ : color,
+expected answer being a condition c > 0 intro-                                          V1′ : red). The instantiated template is then trans-
+duces the count c, while the second sub-question                                        lated into it’s natural language form with the bench-
+for the prompt ‘How many objects are both red and                                       mark’s verbaliser. Every image is paired with a
+cubes?’ with the expected answer = c refers to                                          prompt that is generated in a similar way. Every
+that count. Because the value of c is not known in                                      prompt begins with a sentence that specifies the
+advance, we instantiate it using the model’s most                                       number of objects in the image followed by one or
+likely count predicted for the first question. For                                      more constraints, e.g. “There are 6 objects in the
+example, if the most likely answer is 2, the second                                     scene. There must be at least one red object in the
+question is scored using the probability assigned to                                    scene.”. The prompts are balanced across all con-
+the count 2. The original Soft-TIFA used fixed ex-                                      straint classes, with each constraint class instance
+pected answers (and not conditions like c > 0) and                                      occurring an equal number of times in the training
+does not explicitly resolve dependencies between                                        set.
+
+                                                                                   18
+Figure 6: The annotation tool, showing the Gemini-3-Pro-Image image of Figure 1. The object list (centre) and
+the property editor (right) set each object’s shape, colour and material, and its region is derived from the box. The
+annotator also marks whether the image is a reasonable scene, or marks it as empty.
+
+
+Batches and selection. The (prompt,image)                     benchmark package and an image generated by the
+pairs are split into batches of about 2,000. Each             T2I model for one of the prompts in the selected
+batch targets the same number of instances for ev-            package from drop-down menus. The annotator
+ery one of the 61 (class, template) pairs that oc-            can then edit the annotation present for the image,
+cur in the training data, and no image is reused              and every edit is saved automatically. The tool
+in a batch. Training continues from one batch to              runs as a password-protected web service, which
+the next, initialised from the previous checkpoint.           allowed both annotators to work remotely on the
+After every 50 steps, the loss is computed on a               same files.
+fixed, class-balanced held-out set of 99 images (11              Figure 6 shows the annotation view.
+per class) that never appear in any batch. We se-
+lect the checkpoint with the lowest held-out loss:            What is annotated.
+FLUX.1-dev after batch 1 (held-out loss 0.280) and            • Objects. The annotator draws one bounding box
+Qwen-Image after batch 3 (0.048), both at 1,000                 per object and selects its shape, colour and mate-
+steps.                                                          rial from the closed CLEVR vocabulary (size is
+                                                                not annotated; see §3.2).
+Hyperparameters. LoRA rank 16, α = 16,                        • Spatial information. Regions and spatial rela-
+learning rate 10−4 , batch size 1, resolution 1024 ×            tions are not entered by hand. It can be inferred
+688, seed 42. The training objective is the mod-                from the annotated bounding box.
+els’ native flow-matching loss. Training ran on a             • Scene flags. The annotator marks whether the im-
+single NVIDIA RTX PRO 6000 GPU (32 vCPUs,                       age has rendering errors and flags images contain-
+188 GB RAM); one batch of about 2,000 samples                   ing deformed or unrecognisable objects; these
+took about four hours.                                          flags yield the deformation rates in Table 4. An
+                                                                image without any object is marked as an empty
+G    Human Annotation                                           scene, which is the correct output for an unsatis-
+                                                                fiable specification.
+Annotation tool. The annotation was carried out
+by two annotators, working in a browser-based web             From annotation to verdict. For each image, the
+application that shows one generated image at a               annotation is stored as a scene graph in the same
+time. The web application was partially developed             format as the automatic perception output. It is con-
+using Claude Code (Soldani, 2026). The applica-               verted into ASP facts (object/1, hasProperty/3,
+tion allows the annotator to select a T2I model, a            hasRelationship/3) and solved together with the
+
+                                                         19
+instantiated specification by CLINGO; the image is           Image, it also struggles with count comparison: on
+judged correct if the solver finds the specification         C9 1prop, which requires two sets to be equally
+satisfied (or, for an unsatisfiable specification, if        large, it reaches 0.2 against Gemini-3-Pro-Image’s
+the scene is empty).                                         1.0.
+   Annotators did not see the prompt or the con-                Negation does not make templates uniformly
+straint while annotating. Each image was annotated           harder: for GPT-Image-2 on C1, the negated two-
+by one of the two annotators and took about one              attribute template (2prop_neg, 1.0) is easier than
+minute.                                                      its positive counterpart (2prop, 0.4), while the
+                                                             single-attribute one shows the opposite (1prop 1.0
+H     Additional Results                                     vs. 1prop_neg 0.4). Likewise, constraining more
+                                                             attributes does not consistently lower performance
+H.1    Qualitative Examples
+                                                             (C1 4prop: 0.8 vs. 2prop: 0.4 for GPT-Image-2).
+Figure 7 shows the images that the four T2I mod-             The open models succeed on only a few templates,
+els generated for the same prompt, with the hu-              with performance never above 0.4.
+man verdict under each image and, for failures,
+the reason. The rows follow the Results section:
+a single attribute constraint and a relational con-
+straint (§5), a constraint that is satisfied but with
+the wrong number of objects (§5.4), a composed
+specification (3SAT), and an unsatisfiable specifi-
+cation, for which only Gemini-3-Pro-Image returns
+the expected empty scene.
+
+H.2    Per-Template Results
+Figure 8 breaks the 1SAT results down by tem-
+plate.
+   Gemini-3-Pro-Image satisfies most object-level
+(C1–C3) and plain counting (C8, C9) templates
+perfectly; its failures concentrate on templates
+that tie a requirement to a relation. The hard-
+est template for both proprietary models is C5
+pair_relA_propC (GPT-Image-2: 0.0, Gemini-3-
+Pro-Image: 0.2), which requires every object that
+stands in a given relation to another one to have a
+property, so the condition is triggered by the layout
+of the scene rather than by an attribute. Statements
+like ‘For all x there exists exactly n y objects such
+that ... ’ is similarly hard (C7 1prop_exact: 0.0
+and 0.4). Within C8, adding a relational context
+reduces the performance of Gemini-3-Pro-Image
+from 1.0 on most plain counts to 0.4–0.6 on four
+of its six relational templates, including all three
+negated ones.
+   GPT-Image-2 shows a sharper split. It is per-
+fect on nine templates, all object-level except one
+counting template (C8 1prop_atmost_neg), and
+lies between 0.4 and 0.8 on most other object-
+level and counting templates. On the subgraph
+classes C4–C7 it never exceeds 0.6, and five of
+its six C7 templates (1prop_exact and the four
+propRel templates) score 0.2 or lower, as does
+C5 pair_relA_propC (0.0). Unlike Gemini-3-Pro-
+
+                                                        20
+        GPT-Image-2                   Gemini-3-Pro-Image                    FLUX.1-dev                       Qwen-Image
+
+1SAT: C1_1prop · 5 objects
+Prompt: A gray object is in the scene.
+
+
+
+
+              ✓                                 ✓                     ✗ 3 objects (5 requested)        ✗ 6 objects (5 requested)
+
+
+1SAT: C5_pair_propA_relC · 6 objects
+Prompt: If there is a metal object and a cylinder object, then the former must be in front of the latter. There must be at least one
+such pair.
+
+
+
+
+     ✗ constraint violated                      ✓                     ✗ 7 objects (6 requested)        ✗ 3 objects (6 requested)
+
+
+1SAT: C8_1prop_atmost · 5 objects
+Prompt: There is at most one cylinder object.
+
+
+
+
+   ✗ 6 objects (5 requested)                    ✓                     ✗ 4 objects (5 requested)        ✗ 3 objects, 2 deformed
+                                                                                                             (5 requested)
+
+
+3SAT: C8_2prop_atmost, C1_1prop_2val_neg, C3_3propA_1propC · 3 objects
+Prompt:
+(1) There is at most 1 object that is both in r1 and yellow.
+(2) Some object is neither cube nor sphere.
+(3) At least one object is sphere, metal, and in r3, and every such object must be blue.
+
+
+
+
+   ✗ 4 objects (3 requested)                    ✓                     ✗ 7 objects (3 requested)        ✗ 6 objects (3 requested)
+
+
+1UNSAT: C2_1prop_2val_neg · 5 objects
+Prompt: No object is either rubber or metal.
+
+
+
+
+      ✗ objects rendered                 ✓ empty scene                   ✗ objects rendered                ✗ objects rendered
+
+Figure 7: Images generated by each model for the same prompt (short version), with the human verdict (✓/✗) and,
+for failures, the reason.
+
+
+
+
+                                                                21
+                                 C1                                                           C2                                                C3
+             1prop                                                       1prop                                       1propA_1propC
+    1prop_2val_neg                                              1prop_2val_neg                                    1propA_1prop_neg
+    1prop_3val_neg                                                                                                   1propA_2propC
+         1prop_neg                                                   1prop_neg
+                                                                         2prop                                       1propA_3propC
+             2prop                                                                                               1propA_neg_1propC
+     2prop_mix_neg
+         2prop_neg
+                                                                2prop_mix_neg
+                                                                                                                     2propA_1propC                                 1.0
+                                                                     2prop_neg                                       2propA_2propC
+             3prop                                                       3prop
+ 3prop_val_mix_neg                                                                                               2propA_neg_2propC
+             4prop                                                       4prop                                       3propA_1propC
+     4prop_mix_neg                                                   4prop_neg                                   3propA_1propC_neg
+
+                                                                                                                                                                   0.8
+                      T
+
+
+                            ni
+
+
+
+                                      x
+
+
+                                               e
+
+
+
+
+                                                                                   T
+
+
+                                                                                         ni
+
+
+
+                                                                                                   x
+
+
+                                                                                                            e
+
+
+
+
+                                                                                                                                     T
+
+
+                                                                                                                                           ni
+
+
+
+                                                                                                                                                     x
+
+
+                                                                                                                                                              e
+                                  Flu
+
+
+
+
+                                                                                               Flu
+
+
+
+
+                                                                                                                                                 Flu
+                      GP
+
+
+
+
+                                                                                   GP
+
+
+
+
+                                                                                                                                     GP
+                                             ag
+
+
+
+
+                                                                                                          ag
+
+
+
+
+                                                                                                                                                            ag
+                           mi
+
+
+
+
+                                                                                        mi
+
+
+
+
+                                                                                                                                          mi
+                                           Im
+
+
+
+
+                                                                                                        Im
+
+
+
+
+                                                                                                                                                          Im
+                           Ge
+
+
+
+
+                                                                                        Ge
+
+
+
+
+                                                                                                                                          Ge
+                                          en
+
+
+
+
+                                                                                                       en
+
+
+
+
+                                                                                                                                                         en
+                                          Qw
+
+
+
+
+                                                                                                       Qw
+
+
+
+
+                                                                                                                                                         Qw
+                                 C4                                                           C5                                                C6
+                                                                pair_propA_relC
+        1prop_2hop                                                                                                           1prop
+                                                             pair_propRelA_RelC
+                                                                                                                                                                   0.6
+
+
+
+
+                                                                                                                                                                     Exact satisfaction
+    1prop_2hop_mix                                                                                                       1prop_neg
+                                                           pair_propRelA_propC
+
+                                                                pair_relA_propC
+      1prop_shared                                                                                                           2prop
+                                                              triple_propA_RelC
+  1prop_shared_mix                                                                                                       2prop_neg
+                                                            triple_propRelA_relC
+                                                                                                                                                                   0.4
+                      T
+
+
+                            ni
+
+
+
+                                      x
+
+
+                                               e
+
+
+
+
+                                                                                   T
+
+
+                                                                                         ni
+
+
+
+                                                                                                   x
+
+
+                                                                                                            e
+
+
+
+
+                                                                                                                                     T
+
+
+                                                                                                                                           ni
+
+
+
+                                                                                                                                                     x
+
+
+                                                                                                                                                              e
+                                  Flu
+
+
+
+
+                                                                                               Flu
+
+
+
+
+                                                                                                                                                 Flu
+                      GP
+
+
+
+
+                                                                                   GP
+
+
+
+
+                                                                                                                                     GP
+                                             ag
+
+
+
+
+                                                                                                          ag
+
+
+
+
+                                                                                                                                                            ag
+                           mi
+
+
+
+
+                                                                                        mi
+
+
+
+
+                                                                                                                                          mi
+                                           Im
+
+
+
+
+                                                                                                        Im
+
+
+
+
+                                                                                                                                                          Im
+                           Ge
+
+
+
+
+                                                                                        Ge
+
+
+
+
+                                                                                                                                          Ge
+                                          en
+
+
+
+
+                                                                                                       en
+
+
+
+
+                                                                                                                                                         en
+                                          Qw
+
+
+
+
+                                                                                                       Qw
+
+
+
+
+                                 C7                                                           C8                                                C9       Qw
+       1prop_exact
+                                                                   1prop_atleast
+                                                              1prop_atleast_neg
+                                                        1prop_atleast_relational
+                                                                                                                                                                   0.2
+                                                    1prop_atleast_relational_neg                                             1prop
+   1prop_exact_neg                                                1prop_atmost
+                                                              1prop_atmost_neg
+                                                        1prop_atmost_relational
+     1prop_propRel                                  1prop_atmost_relational_neg
+                                                                    1prop_exact                                              2prop
+                                                               1prop_exact_neg
+ 1prop_propRel_neg                                       1prop_exact_relational
+                                                     1prop_exact_relational_neg
+    propRel_propRel
+                                                                   2prop_atleast
+                                                              2prop_atleast_neg
+                                                                  2prop_atmost
+                                                                                                                                                                   0.0
+                                                              2prop_atmost_neg                                           2prop_mix
+propRel_propRel_neg                                                 2prop_exact
+                                                               2prop_exact_neg
+                      T
+
+
+                            ni
+
+
+
+                                      x
+
+
+                                               e
+
+
+
+
+                                                                                   T
+
+
+                                                                                         ni
+
+
+
+                                                                                                   x
+
+
+                                                                                                            e
+
+
+
+
+                                                                                                                                     T
+
+
+                                                                                                                                           ni
+
+
+
+                                                                                                                                                     x
+
+
+                                                                                                                                                              e
+                                  Flu
+
+
+
+
+                                                                                               Flu
+
+
+
+
+                                                                                                                                                 Flu
+                      GP
+
+
+
+
+                                                                                   GP
+
+
+
+
+                                                                                                                                     GP
+                                               ag
+
+
+
+
+                                                                                                            ag
+
+
+
+
+                                                                                                                                                              ag
+                           mi
+
+
+
+
+                                                                                        mi
+
+
+
+
+                                                                                                                                          mi
+                                           Im
+
+
+
+
+                                                                                                        Im
+
+
+
+
+                                                                                                                                                          Im
+                           Ge
+
+
+
+
+                                                                                        Ge
+
+
+
+
+                                                                                                                                          Ge
+                                          en
+
+
+
+
+                                                                                                       en
+
+
+
+
+                                                                                                                                                         en
+                                          Qw
+
+
+
+
+                                                                                                       Qw
+
+
+
+
+                                                                                                                                                         Qw
+
+
+
+
+Figure 8: Satisfaction rate per template on 1SAT (short prompts), one panel per class; each cell is computed from
+five images.
+
+
+
+
+                                                                                              22
+

@@ -1,0 +1,1078 @@
+                                                           Image Generation from Contextually Contradictory Prompts
+
+                                                  Saar Huberman1                Or Patashnik1              Omer Dahary1                  Ron Mokady2              Daniel Cohen-Or1
+                                                                                               1                               2
+                                                                                                   Tel Aviv University             BRIA AI
+                                                                                          https://tdpc2025.github.io/SAP/
+                                               FLUX
+arXiv:2506.01929v2 [cs.GR] 23 Mar 2026
+
+                                               Ours
+
+
+
+
+                                                      “A knight in chess is a   “Bruce Lee is dressed in    “A butterfly is in a bee’s     “A dragon is blowing      “A bear is performing a
+                                                            unicorn”              a yellow Leotard and                hive”                       water”             handstand in the park”
+                                                                                 tutu practicing ballet”
+
+                                         Figure 1. Our method addresses contextual contradictions in text-to-image generation. These contradictions arise when one concept
+                                         implicitly conflicts with another due to the model’s learned associations. For example, if a concept like “butterfly” is strongly entangled
+                                         with “flowers”, it may conflict with another concept in the prompt such as “bee’s hive”, leading the model to ignore or distort part of the
+                                         semantic meaning.
+
+                                                                       Abstract                                           1. Introduction
+
+                                         Text-to-image diffusion models excel at generating high-                         Text-to-image diffusion models have demonstrated remark-
+                                         quality, diverse images from natural language prompts.                           able capabilities in generating high-quality and diverse vi-
+                                         However, they often fail to produce semantically accurate                        sual content from natural language prompts [15, 24, 27].
+                                         results when the prompt contains concept combinations that                       However, achieving precise semantic alignment between
+                                         contradict their learned priors. We define this failure mode                     the generated image and the conditioning prompt remains
+                                         as contextual contradiction, where one concept implicitly                        an open challenge. This issue becomes particularly pro-
+                                         negates another due to entangled associations learned dur-                       nounced when the target prompt lies outside the model’s
+                                         ing training. To address this, we propose a stage-aware                          training distribution, such as prompts that combine seman-
+                                         prompt decomposition framework that guides the denois-                           tically plausible yet statistically uncommon or unconven-
+                                         ing process using a sequence of proxy prompts. Each                              tional concepts. For example, as shown in Figure 1, gen-
+                                         proxy prompt is constructed to match the semantic con-                           erating an image from the prompt “A butterfly is in a bee’s
+                                         tent expected to emerge at a specific stage of denoising,                        hive” often results in a butterfly on a flower. This is due
+                                         while ensuring contextual coherence. To construct these                          to the model’s prior that entangles butterflies with flowers,
+                                         proxy prompts, we leverage a large language model (LLM)                          which implicitly contradicts the notion of a bee’s hive.
+                                         to analyze the target prompt, identify contradictions, and                           We refer to this phenomenon as Contextual Contradic-
+                                         generate alternative expressions that preserve the origi-                        tion, a conflict between two concepts that arises not from
+                                         nal intent while resolving contextual conflicts. By align-                       direct semantic opposition, but from the model’s associa-
+                                         ing prompt information with the denoising progression, our                       tions learned during training. More precisely, we say that
+                                         method enables fine-grained semantic control and accurate                        concept A contextually contradicts concept B if the model’s
+                                         image generation in the presence of contextual contradic-                        prior entangles A with concept C, and B contradicts C (see
+                                         tions. Experiments across a variety of challenging prompts                       Figure 2). In Figure 1, we illustrate this with a blowing
+                                         show substantial improvements in alignment to the textual                        dragon, which stands in contextual contradiction with the
+                                         prompt.                                                                          water due to its entanglement with fire.
+                                                                                                                              The phenomenon of contextual contradiction in text-to-
+
+
+                                                                                                                     1
+                                                                              Through extensive experiments, we demonstrate the ef-
+                                                                           fectiveness of SAP in generating images from contextually
+                                                                           contradictory text prompts. By introducing prompt infor-
+                                                                           mation at targeted stages, SAP generates precise combina-
+                                                                           tions of semantic attributes while avoiding undesired en-
+                                                                           tanglement. Compared to previous methods, SAP’s stage-
+                                                                           dependent prompt decomposition leads to more faithful and
+                                                                           semantically aligned generations.
+
+Figure 2. On the left is a direct contradiction, since a girl cannot       2. Related Work
+smile and frown at the same time. On the right is a contextual
+                                                                           Learned Spurious Correlations. Machine learning mod-
+contradiction: while Disneyland and crying are not directly op-
+posed, the model’s prior associates Disneyland with happiness,             els are known to be sensitive to spurious correlations in their
+which conflicts with crying.                                               training data [13, 20, 33], leading to performance drops
+                                                                           when training-time associations do not hold at test time.
+image models relates to the broader issue of spurious cor-                 Prior work has extensively studied this in discriminative vi-
+relations in deep learning. Models often exploit shortcuts,                sion tasks, showing, for example, that recognition models
+relying on correlations in the training data that are statisti-            tend to rely heavily on background cues [6, 28, 31]. In our
+cally strong but semantically misleading [13]. In this paper,              work, we show that text-to-image models exhibit similar
+we identify a similar bias in generative models: contextual                behavior. When given contextually contradictory prompts
+contradictions occur when prompts combine concepts that                    – combinations of concepts that conflict with correlations
+individually align with the model’s priors but conflict when               seen during training – diffusion models often fail to gener-
+combined, revealing the model’s reliance on such correla-                  ate images that accurately reflect the prompt. We evaluate
+tions rather than robust compositional reasoning.                          this behavior using the Whoops! dataset [7], which contains
+    To address this issue, we introduce Stage-Aware Prompt-                prompts constructed by first describing two co-occurring el-
+ing (SAP), which builds on the observation that the de-                    ements, and then replacing one with a less compatible alter-
+noising process follows a coarse-to-fine progression, during               native. This results in scenarios that are unlikely to occur in
+which different semantic attributes (e.g., background, pose,               the real world.
+shape, and texture) emerge at distinct stages [4, 9, 23]. Our
+                                                                           Semantic Alignment in Text-to-Image Synthesis. Text-
+key idea is to guide the model at each stage of denoising
+                                                                           to-image models often struggle to fully capture the seman-
+with the information most relevant to the type of content
+                                                                           tic intent of input prompts, particularly when prompts in-
+being formed at that point. To achieve this, we decompose
+                                                                           volve complex or internally conflicting concepts. Previous
+the original prompt into a sequence of proxy prompts, each
+                                                                           works have analyzed common failure cases and proposed
+aligned with the attributes expected at a specific stage and
+                                                                           targeted improvements across various stages of the gener-
+designed to avoid contextual contradictions.
+                                                                           ation pipeline, including enhanced text embedding repre-
+    Ensuring that proxy prompts preserve the original intent
+                                                                           sentations [12, 25, 29], refined attention mechanisms [10],
+while avoiding contextual contradictions requires a broad
+                                                                           guidance strategies that leverage attention maps for loss
+understanding of the real world. For example, it involves
+                                                                           heuristics [2, 9, 21, 26] and dynamic guidance scheduling
+understanding that a bear is entangled with specific poses,
+                                                                           via annealed classifier-free guidance [34]. Despite these
+such as walking on all fours or standing upright, which
+                                                                           advances, existing methods often fail to handle prompts
+in turn, contradicts the handstand pose. To achieve this,
+                                                                           containing contradictory concepts arising from the model’s
+SAP leverages a large language model (LLM) to analyze
+                                                                           learned associations. Our work directly addresses this un-
+the target prompt, identify contextual contradictions, and
+                                                                           derexplored challenge, focusing on contextually contradic-
+construct suitable proxy prompts.
+                                                                           tory prompts.
+    We demonstrate that, by using in-context examples and
+prompting the LLM to follow a reasoning process through a                  Multi-Prompt Conditioning Techniques. Conditioning
+brief explanation, it can identify contextually contradictory              diffusion models on multiple prompts has emerged as an
+concepts in a prompt and determine the appropriate stage                   effective strategy for improving control and compositional-
+of denoising at which each attribute should be introduced.                 ity. One line of work, primarily focused on personalization,
+It can also suggest alternative, non-conflicting concepts that             introduces distinct learned tokens at different layers of the
+preserve the intended attributes and use them to construct                 model and at various denoising timesteps [3, 30]. This de-
+stage-specific proxy prompts. In doing so, the LLM effec-                  sign allows each token to capture different attributes of the
+tively guides the model toward the intended meaning of the                 personalized concept, leading to improved identity preser-
+original prompt.                                                           vation. Other approaches vary the prompt across timesteps
+
+                                                                       2
+    “A howling wolf.”       “A polar bear.”       “A dragon blowing.”         “A woman writing.”             “A woman writing with a dart.”
+
+
+
+
+      <howling>                <polar>                <dragon>                     <dart>                <writing>                    log ratio
+
+
+
+
+                        (a) Entangled concepts.                                             (b) From entanglement to contradiction.
+Figure 3. (a) By examining attention maps, we observe that textual tokens embed contextual associations, leading to the generation of
+concepts not explicitly mentioned in the prompt. For example, the token ‘howling’ encourages the presence of the moon, as indicated by
+its strong attention connection. (b) In prompts with contextual contradictions, two tokens may overlap in attending to the same region, as
+seen with ‘dart’ and ‘writing’. The token ‘writing’ dominates this region, as shown in the log-ratio map, where red areas indicate stronger
+attention to ‘writing’ relative to ‘dart’.
+
+to modulate specific visual properties, such as object shape                helpful, such priors hinder generation when prompts require
+[18, 23], or alternate between rare and frequent object de-                 unusual or contradictory combinations.
+scriptions to improve attribute binding [22]. Fine-grained                      To study this effect, we analyze attention maps (Fig-
+spatial control has also been achieved by assigning sub-                    ure 3a), which indicate the spatial regions influenced (at-
+prompts to separate image regions [32]. Additionally, some                  tended) by each token. We find that text tokens often attend
+methods leverage multiple diffusion models, each condi-                     not only to the image regions directly corresponding to the
+tioned on different prompt attributes, and combine their out-               object but also to contextually linked elements. For exam-
+puts into a unified prediction [5, 19]. Unlike most prior                   ple, in “a howling wolf”, the token ‘howling’ influences
+works, we focus on utilizing multiple prompts to settle in-                 both the mouth and the moon. Similarly, ‘dragon’ attends
+ternal semantic tension, where concept combinations lead                    to flames even when fire is not mentioned. These patterns
+to contextual contradictions.                                               reveal that the model encodes distributional correlations be-
+                                                                            yond literal semantics.
+LLM-Guided Diffusion. LLMs have demonstrated                                    These distributional correlations contribute to the diffi-
+strong capabilities in language understanding. They also                    culty of generating images with contextual contradictions.
+capture broad world knowledge through large-scale training                  For example, when generating an image from the prompt “a
+on diverse text. Recent approaches have leveraged these                     woman writing with a dart”, the model fails to replace the
+capabilities to guide diffusion model generation, often                     pen with a dart. The attention maps shed light on this fail-
+incorporating planning and reasoning to improve semantic                    ure: both ‘writing’ and ‘dart’ attend to the same spatial area
+alignment [16, 22, 32]. In our work, we employ LLMs with                    (the hand/tool), but ‘writing’ dominates (see log-ratio maps
+in-context learning to identify contextual contradictions,                  in Figure 3b), suppressing the influence of ‘dart’. This re-
+generate proxy prompts, and determine the corresponding                     flects a failure mode in which entrenched associations over-
+timestep ranges for conditioning, while encouraging                         ride less familiar ones, preventing proper integration of con-
+reasoning through brief explanatory outputs.                                flicting concepts.
+
+3. From Entangled Concepts to Contextual                                    4. Stage Aware Prompting (SAP)
+   Contradictions
+                                                                            In this section, we begin by analyzing the coarse-to-fine be-
+Diffusion models inherit strong distributional biases from                  havior of the denoising process (Section 4.1). Building on
+their training data, where objects are frequently tied to spe-              the insights from our analysis, we introduce our training-
+cific contexts. For example, prompts like “a duck” almost                   free framework for resolving contextual contradictions in
+always result in water backgrounds, and “a polar bear” ap-                  text-to-image generation. As illustrated in Figure 5, our ap-
+pears in snow. These reflect entangled concepts, learned                    proach consists of two main components: (i) prompt de-
+associations that go beyond the explicit text. While often                  composition (Section 4.2, top part of the figure), and (ii)
+
+
+                                                                        3
+Figure 4. Coarse-to-fine denoising with stage-aware prompting. We show x0 predictions at initial, intermediate, and final steps. A is the
+target prompt, B a suitable proxy, and C an unsuitable proxy. Using A alone locks in night and moon despite “midday”. Using B first and
+then switching to A preserves a daytime layout and later adapts the identities to wolf and bat. Using C first sets a layout without a flying
+object, so the final image fails to produce the intended subjects.
+
+stage-aware prompt injection (Section 4.3, bottom part of                of selecting an appropriate proxy prompt. Since rats do not
+the figure). In the following, we describe each of these com-            fly, the layout determined in early steps lacks a flying ob-
+ponents.                                                                 ject, resulting in a sitting wolf with bat wings.
+                                                                             These observations motivate a stage-aware prompting
+4.1. Coarse-to-Fine Denoising                                            strategy that fixes structural decisions early while keeping
+Diffusion models generate images in a coarse-to-fine man-                later attributes flexible. Building on this, we now describe
+ner: early steps determine low-frequency structures, while               the two main components of our method: prompt decompo-
+high-frequency details emerge in later steps [4, 9, 14, 23].             sition and stage-aware prompt injection.
+From this behavior, we draw two key observations: (i) Ir-
+reversibility of details. As denoising progresses, the model             4.2. Prompt Decomposition
+sequentially commits to different levels of detail, beginning
+with layout and overall shape. Once these are formed, they               Given a prompt P that contains contextually contradic-
+cannot be revised in later stages, even if they conflict with            tory concepts, we aim to construct a sequence of proxy
+the prompt. (ii) Flexibility in high-frequency details. In               prompts {p1 , p2 , ..., pn } and corresponding timestep inter-
+early stages, high-frequency details are absent and unaf-                vals {I1 , I2 , ..., In } that together reflect the intended seman-
+fected by the prompt, enabling flexible guidance without                 tics of P . Each proxy prompt pi is designed to (i) preserve
+influence on fine details.                                               the relevant semantics of P for attributes typically formed
+    As shown in Section 3, contextual contradictions stem                during its interval Ii , which is crucial due to the irreversibil-
+from concept entanglement in the diffusion prior. Since                  ity of details, and (ii) avoid contradictions likely to emerge
+different concepts emerge at different levels of detail dur-             at that stage, leveraging the flexibility in high-frequency de-
+ing the coarse-to-fine denoising process, they can be de-                tails. This decomposition conditions the diffusion model on
+composed across the denoising stages. We illustrate this                 contextually coherent content that evolves in tandem with
+in Figure 4 by examining the model’s x0 predictions across               the coarse-to-fine denoising process.
+denoising steps. In the top-left row, the prompt “a howl-                    To generate proxy prompts and their intervals, we use
+ing wolf and a flying bat at midday” shows that early steps              a large language model (LLM) that detects contextual con-
+already impose entangled nighttime and moon structures,                  tradictions and proposes suitable substitutes for conflicting
+contradicting “midday”. In the bottom-left row, starting                 concepts. It also infers the appropriate staging of these con-
+with a proxy prompt containing “dog” and “bird” (instead                 cepts within the proxy prompts. We implement this using a
+of “wolf” and “bat”, respectively) and later switching to the            structured prompt template containing instructional text, in-
+target prompt produces a correct midday scene with the in-               context examples, and explanations of contextual contradic-
+tended objects. The bottom-left row demonstrates both the                tions. The examples demonstrate both successful decompo-
+irreversibility of coarse details (the scene remains daytime)            sitions and cases requiring no decomposition, enabling the
+and the flexibility of high-frequency details (the object iden-          LLM to generalize. The full instruction prompt is provided
+tities adapt). The top-right row highlights the importance               in the Appendix.
+
+
+                                                                     4
+        Target prompt:
+      “A lion is doing a
+         handstand”                                          Proxy prompts:
+                                                             Steps 1-4: “A man is doing a handstand in the park”
+                                         LLM                 Steps 5-6: “A man in a lion costume is doing a handstand in the park”
+        LLM Instruction                                      Steps 7-50: “A lion is doing a handstand in the park”
+               +
+      In-context examples
+
+         “A man is                            “A man in a lion                              “A lion is
+          doing…”                                costume…”                                  doing…”
+
+
+              DiT                                      DiT                                      DiT
+
+            Steps 1-4                                Steps 5-6                                Steps 7-50
+
+Figure 5. SAP generates images from contextually contradictory prompts using time-dependent proxy prompts. (Top) A large language
+model (LLM) decomposes the target prompt into a sequence of proxy prompts with corresponding timestep intervals. (Bottom) These proxy
+prompts are injected into the diffusion process at their designated intervals to guide generation.
+
+In-context Examples. Our in-context examples take a                  4.3. Stage-aware Prompt Injection
+target prompt as input and output proxy prompts with
+                                                                     Given a sequence of proxy prompts {p1 , p2 , ..., pn }, their
+timestep intervals, along with a brief explanation of the con-
+                                                                     corresponding timestep intervals {I1 , I2 , ..., In }, and a text-
+tradiction. Requiring the LLM to provide this explanation
+                                                                     to-image (T2I) diffusion model, we condition the model us-
+encourages reasoning about conflicts and ensures coherent
+                                                                     ing different prompts throughout the denoising process. At
+substitutions. These examples were created by identify-
+                                                                     each timestep t, we apply the prompt pi such that t ∈ Ii .
+ing contextually contradictory prompts that fail under the
+                                                                     By aligning each proxy prompt with its interval, the denois-
+base model (FLUX) and manually decomposing them into
+                                                                     ing process is guided by concepts appropriate to the level
+proxy prompts with corresponding intervals. The explana-
+                                                                     of detail emerging at that stage. This enables gradual im-
+tions were auto-generated by an LLM. We include 20 exam-
+                                                                     age construction while avoiding conflicts with the model’s
+ples that demonstrate diverse strategies for handling contra-
+                                                                     learned priors. The injection mechanism integrates seam-
+dictions. We next elaborate on one of the most frequent
+                                                                     lessly into existing inference pipelines without architectural
+strategies in our method.
+                                                                     modifications and is compatible with a range of pretrained
+                                                                     diffusion models.
+Concept Substitution. In this strategy, a conflicting con-
+cept is temporarily replaced with a structurally appropri-           5. Experiments and Results
+ate proxy (Figure 4). A simpler alternative is to omit the
+conflicting concept, but introducing an object only in later         In this section, we evaluate SAP through qualitative (Sec-
+stages without a placeholder can distort its perceived size          tion 5.1) and quantitative (Section 5.2) comparisons. We
+or cause it to be omitted entirely. In Figure 6, we demon-           further conduct ablation studies (Section 5.3) on component
+strate this by comparing decompositions that differ only in          contributions and robustness, followed by a discussion on
+when the second interval begins. The first proxy specifies           the limitations of our method.
+the background, while the second adds the foreground. In-            Implementation Details. We use FLUX.1 [dev] [17] as
+troducing the foreground early allows the model to allocate          the base T2I model and GPT-4o [1] for prompt decompo-
+more space, whereas delaying it constrains the layout and            sition. In all experiments, inference is performed using
+produces a smaller object. Substitution resolves these is-           T = 50 steps and the LLM is restricted to at most three
+sues and yields stable layouts. In Figure 7, we show the             proxies per prompt. Baseline hyperparameters follow their
+effect of misplacing intervals across denoising stages. Us-          original papers or implementations, with T = 50 steps for
+ing two proxies with different intervals, where the second is        fair comparison. To further demonstrate robustness, we also
+the full prompt, we observe two failure modes: introducing           report results with SD3.0 using the same LLM-generated
+the full prompt too early prevents disentangling contradic-          proxy prompts and intervals.
+tions, while introducing it too late alters only fine details.       Baselines. We compare SAP against the following ap-
+Earlier in Figure 4 we illustrated the importance of careful         proaches: (1) base models FLUX-dev (denoted by
+proxy selection.                                                     FLUX) [17] and SD3.0 [11]; (2) R2F [22], a training-
+
+
+                                                                 5
+         “A monkey is sitting on a white sandy beach.”                                  “A camping tent is inside a bedroom.”
+
+
+
+
+                    “A snowman in a desert.”
+                                                                                    “A mother duck guards three rubber duckies.”
+
+
+
+
+         Step 1               Step 3              Step 5
+                                                                                   Step 1               Step 14                Ours
+Figure 6. Early insertion of the foreground allows the model to
+allocate more space to it, while late insertion confines the ob-           Figure 7. Effect of interval assignment. Introducing the full prompt
+ject within the existing layout, making it appear smaller (e.g., the       too early fails to disentangle contextual contradictions, while in-
+snowman introduced at Step 5). Step labels indicate when the fore-         troducing it too late alters only fine details. Top proxy: “A pillow
+ground object is introduced.                                               fort in a bedroom”; bottom proxy “A mother duck guards three
+                                                                           ducklings”.
+
+free method reported under three settings: SD3.0 (origi-                   hibit characteristic failure modes when handling contra-
+nal), FLUX-schnell (official), and our reimplementation on                 dictory prompts. In contrast, SAP successfully generates
+FLUX; (3) Annealing Guidance [34], which trains a small                    challenging cases such as a blue Shrek or a monkey jug-
+MLP to predict the classifier-free guidance scale at each                  gling tiny elephants (Figure 8). In addition to FLUX,
+step; and (4) Ella [16], a fine-tuned model on SD1.5. (5)                  SAP also improves SD3 generations under contradictory
+VL-DNP [8], a VLM-guided negative prompting method,                        prompts (Figure 9).
+evaluated using SD3 with Qwen2.5-VL-7B.                                        For SD3 and FLUX, contradictory prompts expose con-
+Datasets We evaluate SAP using three datasets: Whoops!                     flicts with learned priors, resulting in prompt misalignment.
+[7], Whoops-Hard, and ContraBench. Whoops! consists                        Ella and Annealing Guidance, not designed for contradic-
+of 500 prompts paired with commonsense-defying images,                     tions, perform less effectively on such cases. R2F alter-
+designed to test visual reasoning and compositional under-                 nates between prompts at predefined timesteps, a strategy
+standing. While relevant to our task, many of its prompts                  designed for attribute binding rather than addressing con-
+are relatively easy for modern T2I models and do not con-                  textual contradictions. While it can reinforce rare concepts,
+sistently expose model limitations.                                        it does not align prompts with the stages at where seman-
+    To address this, we curate Whoops-Hard, a subset of 100                tic features emerge during denoising. As a result, it often
+particularly difficult prompts from Whoops!, providing a                   produces hybrid concepts that merge incompatible elements
+stronger benchmark for evaluating current state-of-the-art                 from conflicting concept (see the bodybuilder in Figure 9,
+models. To further probe semantic alignment under con-                     and the owl and SpongeBob results in the Appendix).
+tradictory conditions, we introduce ContraBench, a curated                     In contrast, SAP produces semantically coherent outputs
+set of 40 prompts capturing contextual contradictions. The                 by introducing proxy prompts at denoising stages where
+dataset was constructed in two steps: (1) ChatGPT gener-                   corresponding features emerge. This enables effective han-
+ated candidate prompts based on the definition of contex-                  dling of conflicting concepts. Across both benchmarks,
+tual contradictions, and (2) human annotators filtered them                SAP consistently generates coherent images for contradic-
+to retain only those that clearly expressed contradictions.                tory prompts. Robustness is further demonstrated in the Ap-
+The full prompt lists for both datasets are provided in the                pendix, comparing generations across multiple seeds.
+Appendix.
+                                                                           5.2. Quantitative Results
+5.1. Qualitative Results
+                                                                           We evaluate prompt alignment using GPT-4o vi-
+Figure 8 presents qualitative comparisons on the Whoops!                   sion–language model (VLM). For each generated image,
+and ContraBench datasets (see Appendix for more results).                  GPT-4o assigns a score from 1–5 based on adherence to
+Across both benchmarks, baseline methods consistently ex-                  the prompt. Scores are averaged across three fixed random
+
+
+                                                                       6
+                                                             “A monkey juggles tiny elephants.”
+
+
+
+
+                                                                      “Shrek is blue.”
+
+
+
+
+                                              “Lightning striking a dilapidated shack on a clear sunny day.”
+
+
+
+
+      Ella              Annealing             SD3                 R2F               FLUX           R2F (schnell)   R2F (FLUX)       SAP
+
+Figure 8. Qualitative comparison of SAP with baseline methods. Our method resolves contextual contradictions, whereas baselines
+struggle to produce text-aligned images. Additional examples are provided in the Appendix.
+
+              SD3               R2FSD3              SAPSD3                       We randomly sampled 24 prompts from the Whoops! and
+                                                                                 ContraBench benchmarks. For each prompt, participants
+                                                                                 compared two images, one generated by SAP and the other
+                                                                                 by a baseline, and answered: (1) which most accurately re-
+                                                                                 flected the prompt, and (2) which had higher visual qual-
+                                                                                 ity. In total, we collected responses from 61 users, yielding
+             “A grown man has a baby’s pacifier in his mouth.”                   1,464 individual evaluations. Table 2 summarizes the win
+                                                                                 rates of SAP against each baseline.
+                                                                                     These results highlight the superiority of our approach
+                                                                                 in handling contextually contradictory prompts, achieving
+                                                                                 both stronger prompt alignment and higher visual quality.
+
+                                                                                 5.3. Ablation Studies
+                “A bodybuilder balancing on pointe shoes.”
+Figure 9. SAP is robust to the base model, as shown by the results               We evaluate SAP through ablations that assess design
+obtained with SAPSD3 .                                                           choices in prompt decomposition and robustness under dif-
+                                                                                 ferent conditions, such as timestep perturbations. Addi-
+seeds per prompt and scaled to 20–100. The evaluation                            tional results on alternative LLMs and non-contradictory
+prompt is provided in the Appendix.                                              prompts are in the Appendix.
+   As shown in Table 1, SAP outperforms all baselines
+                                                                                 Prompt decomposition components. We conduct abla-
+across the three benchmarks. Between the base models,
+                                                                                 tions on the Whoops-Hard benchmark, where each variant
+SD3.0 tends to yield stronger alignment under contradic-
+                                                                                 isolates a design choice to quantify its effect on alignment
+tions, while FLUX offers higher visual quality (Figure 8).
+                                                                                 within our method (Table 3). In-context examples signifi-
+SAP improves both backbones, enhancing prompt adher-
+                                                                                 cantly improve the LLM’s ability to decompose contradic-
+ence while maintaining the visual fidelity of the underlying
+                                                                                 tory prompts, leading to better text–image alignment. Re-
+models (Figures 8 and 9 ).
+                                                                                 moving the explanation requirement impairs reasoning and
+User study. VLM-based metrics often miss subtle seman-                           causes a notable drop, showing that generating explicit ex-
+tic inconsistencies and do not adequately assess image qual-                     planations encourages more coherent semantic decisions.
+ity. To complement them, we conducted a user study evalu-                        Restricting decomposition to two proxies performs close to
+ating both prompt adherence and overall visual appearance.                       the full method, while allowing up to three proxies provides
+
+
+                                                                             7
+Table 1. Quantitative evaluation on various benchmarks using
+the GPT-4o vision-language model. We report average alignment,
+where alignment reflects how well the image matches the prompt
+semantics, independent of visual quality. SAP achieves the best
+results, regardless of the base model.
+
+                                 Benchmarks                                “A bouquet of flowers                         “The shadow of a cat
+                                                                              is upside down          “A white glove         is facing the
+         Models        Whoops     Whoops-      Contra-                           in a vase”           has 6 fingers”      opposite direction”
+                                   Hard        Bench
+                                                                                            Figure 10. Failure cases of SAP.
+         SD3.0          82.63       55.73          57.5
+         FLUX           78.85        44.3         57.16
+                                                                         Table 4. Effect of perturbing LLM-predicted timestep intervals.
+         Ella           69.09       45.19         55.16                  Boundaries are uniformly shifted within window w. SAPw=i de-
+         Annealing      79.59       59.06         58.33                  notes evaluation with window i.
+         VL-DNP         82.79       56.26         58.83
+                                                                                                            Benchmarks
+         R2F            83.50       57.06         59.16
+         R2Fschnell     79.58       54.80         59.33                             Models         Whoops     Whoops-     Contra-
+         R2FFLUX        48.68       32.80         25.33                                                        Hard       Bench
+         SAPSD3.0       85.87       64.40         65.33                             FLUX            78.85        44.3      57.16
+         SAP            85.10       62.13         66.16                             SAP             85.10        62.13     66.16
+                                                                                    SAPw=3          84.18        62.06     65.5
+Table 2. User study results. Win rates of SAP in text-image align-                  SAPw=5          81.46        58.46     62.5
+ment and image quality, compared against each baseline method.
+                      SD3 FLUX Ella Annealing R2F
+       Alignment 70%       81%    81%       73%      75%                 Limitations. In Figure 10, we present representative fail-
+       Quality   72%       63%    74%       79%      68%                 ure cases of our method on examples from the Whoops!
+                                                                         benchmark. Since our approach relies on guiding the model
+Table 3. Ablation on Whoops-Hard. We evaluate our prompt de-             through text alone, it cannot control properties that the un-
+composition method by (1) removing in-context examples, (2) re-          derlying model inherently struggles with, such as generat-
+moving the explanation requirement, and (3) limiting decomposi-          ing specific quantities or enforcing precise orientations; a
+tion to two proxy prompts.                                               more detailed categorization and analysis of failure modes
+                            w/o        w/o                               is provided in the supplementary.
+                  static in-context reasoning 2 proxy Full
+     Alignment 44.3       48.0      46.46     60.26 62.13                6. Conclusions
+extra flexibility for harder cases and yields further gains.             We introduced a training-free framework for resolving con-
+                                                                         textual contradictions in text-to-image generation, cases
+Robustness to LLM-predicted timestep intervals. Our                      where seemingly plausible prompts fail due to strong, hid-
+method relies on LLM-predicted intervals to schedule proxy               den model biases. At its core, our method leverages
+prompts, but these boundaries do not require exact place-                the coarse-to-fine generation process to separate contradic-
+ment. The earlier results (Figure 7) highlight that plac-                tions across denoising stages, enabling faithful rendering of
+ing proxy prompts at the wrong stage of denoising (e.g.,                 prompts that would otherwise yield semantically inconsis-
+too early or too late) can harm alignment. Here we show                  tent outputs. The introduction of proxy prompts steers the
+that within the correct coarse stage, the method is robust               generative process in line with the model’s priors, enabling
+to moderate boundary shifts. Specifically, we perturb inter-             it to resolve conflicts and preserve semantic fidelity without
+val boundaries while keeping the proxy prompts fixed, uni-               the need for retraining or fine-tuning.
+formly shifting them within windows of varying size. As
+                                                                             We argue that since our approach already leverages the
+shown in Table 4, small shifts of up to ±1 step (window=3)
+                                                                         broad world knowledge of vision–language models, inte-
+have almost no effect on alignment, and even larger shifts
+                                                                         grating them more tightly with generative models holds
+of up to ±2 steps (window=5) cause only minor degrada-
+                                                                         promise for addressing contextual contradictions directly.
+tion, despite representing a substantial perturbation relative
+                                                                         As a next step, we plan to explore emerging compound
+to the full method effective range (∼12 steps; see Appendix
+                                                                         architectures that combine VLMs and generative models,
+). These results confirm that SAP is sensitive to the stage at
+                                                                         with the aim of understanding how to effectively harness
+which information is introduced, but largely insensitive to
+                                                                         them to resolve conflicts in open-ended generation.
+exact step boundaries within that stage.
+
+                                                                     8
+Acknowledgments                                                         [12] Weixi Feng, Xuehai He, Tsu-Jui Fu, Varun Jampani, Arjun
+                                                                             Akula, Pradyumna Narayana, Sugato Basu, Xin Eric Wang,
+This research was supported in part by the Israel Science                    and William Yang Wang. Training-free structured diffusion
+Foundation (grants no. 2492/20 and 1473/24), Len Blavat-                     guidance for compositional text-to-image synthesis. arXiv
+nik and the Blavatnik family foundation.                                     preprint arXiv:2212.05032, 2022. 2
+                                                                        [13] Robert Geirhos, Jörn-Henrik Jacobsen, Claudio Michaelis,
+References                                                                   Richard Zemel, Wieland Brendel, Matthias Bethge, and Fe-
+                                                                             lix A. Wichmann. Shortcut learning in deep neural networks.
+ [1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ah-                   Nature Machine Intelligence, 2(11):665–673, 2020. 2
+     mad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida,
+                                                                        [14] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman,
+     Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al.
+                                                                             Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt im-
+     Gpt-4 technical report. arXiv preprint arXiv:2303.08774,
+                                                                             age editing with cross attention control. arXiv preprint
+     2023. 5
+                                                                             arXiv:2208.01626, 2022. 4
+ [2] Aishwarya Agarwal, Srikrishna Karanam, KJ Joseph,
+                                                                        [15] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffu-
+     Apoorv Saxena, Koustava Goswami, and Balaji Vasan Srini-
+                                                                             sion probabilistic models. arXiv preprint arxiv:2006.11239,
+     vasan. A-star: Test-time attention segregation and retention
+                                                                             2020. 1
+     for text-to-image synthesis. In Proceedings of the IEEE/CVF
+     International Conference on Computer Vision, pages 2283–           [16] Xiwei Hu, Rui Wang, Yixiao Fang, Bin Fu, Pei Cheng,
+     2293, 2023. 2                                                           and Gang Yu.          Ella: Equip diffusion models with
+                                                                             llm for enhanced semantic alignment.         arXiv preprint
+ [3] Yuval Alaluf, Elad Richardson, Gal Metzer, and Daniel
+                                                                             arXiv:2403.05135, 2024. 3, 6
+     Cohen-Or. A neural space-time representation for text-
+     to-image personalization. ACM Transactions on Graphics             [17] Black Forest Labs. Flux. https://github.com/
+     (TOG), 42(6):1–10, 2023. 2                                              black-forest-labs/flux, 2024. 5
+ [4] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Ji-          [18] Jun Hao Liew, Hanshu Yan, Daquan Zhou, and Jiashi Feng.
+     aming Song, Qinsheng Zhang, Karsten Kreis, Miika Aittala,               Magicmix: Semantic mixing with diffusion models. arXiv
+     Timo Aila, Samuli Laine, et al. ediff-i: Text-to-image dif-             preprint arXiv:2210.16056, 2022. 3
+     fusion models with an ensemble of expert denoisers. arXiv          [19] Nan Liu, Shuang Li, Yilun Du, Antonio Torralba, and
+     preprint arXiv:2211.01324, 2022. 2, 4                                   Joshua B Tenenbaum. Compositional visual generation with
+ [5] Omer Bar-Tal, Lior Yariv, Yaron Lipman, and Tali Dekel.                 composable diffusion models. In European Conference on
+     Multidiffusion: Fusing diffusion paths for controlled image             Computer Vision, pages 423–439. Springer, 2022. 3
+     generation. 2023. 3                                                [20] Tom McCoy, Ellie Pavlick, and Tal Linzen. Right for the
+ [6] Sara Beery, Grant Van Horn, and Pietro Perona. Recognition              wrong reasons: Diagnosing syntactic heuristics in natural
+     in Terra Incognita, page 472–489. Springer International                language inference. In Proceedings of the 57th Annual Meet-
+     Publishing, 2018. 2                                                     ing of the Association for Computational Linguistics. Asso-
+ [7] Nitzan Bitton-Guetta, Yonatan Bitton, Jack Hessel, Lud-                 ciation for Computational Linguistics, 2019. 2
+     wig Schmidt, Yuval Elovici, Gabriel Stanovsky, and Roy             [21] Tuna Han Salih Meral, Enis Simsar, Federico Tombari, and
+     Schwartz. Breaking common sense: Whoops! a vision-and-                  Pinar Yanardag. Conform: Contrast is all you need for high-
+     language benchmark of synthetic and compositional images.               fidelity text-to-image diffusion models. In Proceedings of
+     In 2023 IEEE/CVF International Conference on Computer                   the IEEE/CVF Conference on Computer Vision and Pattern
+     Vision (ICCV), page 2616–2627. IEEE, 2023. 2, 6                         Recognition, pages 9005–9014, 2024. 2
+ [8] Hoyeon Chang, Seungjin Kim, and Yoonseok Choi. Dy-                 [22] Dongmin Park, Sebin Kim, Taehong Moon, Minkyu Kim,
+     namic vlm-guided negative prompting for diffusion models.               Kangwook Lee, and Jaewoong Cho. Rare-to-frequent: Un-
+     arXiv preprint arXiv:2510.26052, 2025. 6                                locking compositional generation power of diffusion mod-
+ [9] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and                  els on rare concepts with llm guidance. arXiv preprint
+     Daniel Cohen-Or. Attend-and-excite: Attention-based se-                 arXiv:2410.22376, 2024. 3, 5
+     mantic guidance for text-to-image diffusion models. ACM            [23] Or Patashnik, Daniel Garibi, Idan Azuri, Hadar Averbuch-
+     transactions on Graphics (TOG), 42(4):1–10, 2023. 2, 4                  Elor, and Daniel Cohen-Or. Localizing object-level shape
+[10] Omer Dahary, Or Patashnik, Kfir Aberman, and Daniel                     variations with text-to-image diffusion models. In Proceed-
+     Cohen-Or. Be yourself: Bounded attention for multi-subject              ings of the IEEE/CVF international conference on computer
+     text-to-image generation. In European Conference on Com-                vision, pages 23051–23061, 2023. 2, 3, 4
+     puter Vision, pages 432–448. Springer, 2024. 2                     [24] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,
+[11] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim                   Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.
+     Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik                 Zero-shot text-to-image generation, 2021. 1
+     Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling recti-         [25] Royi Rassin, Shauli Ravfogel, and Yoav Goldberg. Dalle-
+     fied flow transformers for high-resolution image synthesis.             2 is seeing double: Flaws in word-to-concept mapping in
+     In Forty-first international conference on machine learning,            text2image models. arXiv preprint arXiv:2210.10606, 2022.
+     2024. 5                                                                 2
+
+
+                                                                    9
+[26] Royi Rassin, Eran Hirsch, Daniel Glickman, Shauli Rav-
+     fogel, Yoav Goldberg, and Gal Chechik. Linguistic bind-
+     ing in diffusion models: Enhancing attribute correspondence
+     through attention map alignment. Advances in Neural Infor-
+     mation Processing Systems, 36:3536–3559, 2023. 2
+[27] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+     Patrick Esser, and Björn Ommer. High-resolution image
+     synthesis with latent diffusion models. In Proceedings of
+     the IEEE/CVF conference on computer vision and pattern
+     recognition, pages 10684–10695, 2022. 1
+[28] Krishna Kumar Singh, Dhruv Mahajan, Kristen Grauman,
+     Yong Jae Lee, Matt Feiszli, and Deepti Ghadiyaram. Don’t
+     judge an object by its context: Learning to overcome con-
+     textual bias. In 2020 IEEE/CVF Conference on Computer
+     Vision and Pattern Recognition (CVPR). IEEE, 2020. 2
+[29] Hazarapet Tunanyan, Dejia Xu, Shant Navasardyan,
+     Zhangyang Wang, and Humphrey Shi. Multi-concept t2i-
+     zero: Tweaking only the text embeddings and nothing else.
+     arXiv preprint arXiv:2310.07419, 2023. 2
+[30] Andrey Voynov, Qinghao Chu, Daniel Cohen-Or, and Kfir
+     Aberman. p+: Extended textual conditioning in text-to-
+     image generation. arXiv preprint arXiv:2303.09522, 2023.
+     2
+[31] Kai Yuanqing Xiao, Logan Engstrom, Andrew Ilyas, and
+     Aleksander Madry. Noise or signal: The role of image back-
+     grounds in object recognition. In International Conference
+     on Learning Representations, 2021. 2
+[32] Ling Yang, Zhaochen Yu, Chenlin Meng, Minkai Xu, Ste-
+     fano Ermon, and Bin Cui. Mastering text-to-image diffu-
+     sion: Recaptioning, planning, and generating with multi-
+     modal llms. In Forty-first International Conference on Ma-
+     chine Learning, 2024. 3
+[33] Wenqian Ye, Guangtao Zheng, Xu Cao, Yunsheng Ma, and
+     Aidong Zhang. Spurious correlations in machine learning:
+     A survey. arXiv preprint arXiv:2402.12715, 2024. 2
+[34] Shai Yehezkel, Omer Dahary, Andrey Voynov, and Daniel
+     Cohen-Or. Navigating with annealing guidance scale in dif-
+     fusion space. arXiv preprint arXiv:2506.24108, 2025. 2, 6
+
+
+
+
+                                                                   10
+                 Image Generation from Contextually Contradictory Prompts
+                                                   Supplementary Material
+7. Ethics Statement                                                        Table 5. Performance of SAP when combined with different LLMs,
+                                                                           comparing GPT-4o and Llama-3.1-8B-Instruct.
+Our work contributes to improving the semantic alignment of text-
+to-image models under contradictory or biased prompts. As a con-                                             Benchmarks
+sequence, our method enhances users’ ability to control generative                  Models         Whoops         Whoops-   Contra-
+models and faithfully render contradictory concepts. While this                                                    Hard     Bench
+provides positive benefits, such as reducing unintended biases and
+                                                                                    FLUX            78.85          44.3       57.16
+enabling more inclusive image generation, it also increases the po-
+tential for misuse, including the creation of harmful, misleading,                  SAPGPT4o        85.10          62.13      66.16
+or inappropriate content. As with any advance in generative mod-                    SAPLlama3.1     80.52          59.53      61.16
+eling, these dual-use concerns highlight the importance of respon-
+sible deployment, safeguards, and continued ethical oversight to           Table 6. Alignment performance on the PartiPrompts-simple
+ensure that such improvements contribute positively to society.            benchmark, which contains simple, non-contradictory prompts.
+                                                                           Scores are computed using GPT-4o vision-language model. Our
+8. Additional Results                                                      method achieves comparable performance to the base model, in-
+Robustness across LLMs. Since our framework hinges on                      dicating no degradation on regular prompts.
+LLM-driven prompt decomposition, we further examined its ro-
+bustness under different language models. We evaluated both                               Models      PartiPrompts-simple
+a proprietary model (GPT-4o) and a comparatively lightweight
+                                                                                          FLUX                    93.46
+open-source alternative (LLaMA-3.1-8B-Instruct). While GPT-4o
+delivers the strongest performance, the smaller LLaMA-3.1-8B-
+                                                                                          SAP                     93.06
+Instruct still yields consistent improvements over the baseline (see
+Table 5).                                                                    “A kangaroo delivering mail
+                                                                                   on a bicycle.”             “A boy is kissing a hedgehog.”
+Improved realism. SAP generates photorealistic and semanti-
+cally coherent images for prompts with atypical attribute combina-
+tions (Figure 11). In contrast, FLUX often defaults to cartoon-like
+renderings, even when photorealism is explicitly requested, reveal-
+ing a contextual contradiction between fantastical content and real-
+istic style. By using contradiction-free proxy prompts, SAP avoids
+these biases and produces realistic outputs regardless of whether                                        FLUX
+photorealism is explicitly required in the prompt.
+
+Non-contradictory prompts. To ensure applicability in gen-
+eral text-to-image scenarios, we verify that our method does not
+negatively affect prompts without contextual contradictions. We
+find that including even a single non-contradictory in-context ex-
+                                                                                                            SAP
+ample is sufficient for the LLM to default to using the full prompt
+in such cases. We evaluate this behavior using GPT-4o align-               Figure 11. FLUX tends to generate realistic images by de-
+ment scores on the PartiPrompts-Simple benchmark, which con-               fault. However, when given unrealistic prompts, it often produces
+tains simple, non-contradictory prompts (Table 6).                         cartoon-like samples. In contrast, our method, which gradually
+                                                                           resolves such prompts through coherent proxy stages, consistently
+Additional qualitative comparisons. Figures 13 and 14                      generates realistic and semantically aligned images.
+present additional qualitative comparisons of our method, while
+Figure 15 shows results across multiple seeds.                             from limitations of the LLM rather than the proposed framework,
+                                                                           and can potentially be mitigated. A second group of failures stems
+Failure Mode Analysis. We analyze failure cases of SAP and                 from inherent limitations of the underlying diffusion model, such
+group them into three categories, summarized in Table 7. The ma-           as difficulty generating an empty pool or rendering unusual sym-
+jority of failures arise from incorrect proxy prompt assignment,           bolic structures (e.g., compass directions), which persist even with
+where the selected proxy does not adequately preserve the in-              correct prompt decomposition (Figure 12, right). Finally, only a
+tended structure or semantics of the target concept. In many such          small fraction of failures is attributed to suboptimal interval as-
+cases, manually correcting the proxy resolves the contradiction, as        signment, consistent with our findings that SAP is robust to mod-
+illustrated in Figure 12 (left), indicating that these failures stem       erate variations in timestep scheduling.
+
+
+                                                                       1
+     Table 7. Breakdown of SAP failure cases by root cause.
+
+                        Interval    Proxy     Model
+                      assignment assignment limitation
+     Failure cases       3.3%          63.3%         33.3%
+
+    Bad proxy / Corrected                Model limitation
+
+
+
+
+                                  “A man jumping “A compass with
+        “A man is welding          into an empty North South South
+         without a mask”
+                                  swimming pool.” West points”
+
+Figure 12. Failure cases of SAP. Left: a proxy assignment failure,
+where an unsuitable proxy leads to incorrect generation; manually
+correcting the proxy (right image in pair) resolves the contradic-
+tion. Right: failures due to inherent limitations of the underlying
+diffusion model, such as difficulty generating an empty pool or ren-
+dering unusual symbolic structures (e.g., a compass with incorrect
+directions).
+
+
+Computational Overhead. SAP introduces modest over-
+head due to a single LLM inference for prompt decomposition,
+performed once per prompt prior to diffusion, and a lightweight
+additional embedding pass. As this step occurs only once and is
+independent of the denoising process, it does not significantly im-
+pact overall generation time.
+
+9. LLM Instruction for Prompt Decomposition
+Tables 8 and 9 detail the full LLM instruction used for our
+method’s decomposition, along with the corresponding in-context
+examples. In a single inference pass, our method detects contex-
+tual contradictions, generates proxy prompts, and assigns timestep
+intervals.
+    Table 10 presents examples of our LLM input prompts, along
+with the corresponding output explanations and the decomposition
+into proxy prompts and timestep intervals.
+
+10. Provided Benchmarks
+We describe the construction of ContraBench and Whoops-Hard
+in the main text. Here, we provide the full lists of prompts for
+these benchmarks in Table 11 and Table 12, respectively.
+
+11. VLM Evaluation
+We utilize GPT-4o to assess alignment between prompts and their
+generated images. The instruction prompt provided to the VLM is
+shown in Table 13.
+
+
+
+
+                                                                       2
+                  Ella          Annealing           SD3              R2F              Flux             SAP
+
+
+
+
+                                            “A balloon is lifting up a package.”
+
+
+
+
+                                       “A coocoo clock with a horse popping out.”
+
+
+
+
+                                      “An owl is perched upside down on a branch.”
+
+
+
+
+                          “A photorealistic photo of SpongeBob SquarePants dancing ballet.”
+
+
+
+
+                                      “Children in Africa are building a snowman.”
+
+
+
+
+                                            “A cruise ship parked in a bathtub.”
+
+
+
+
+                                 “A fortune teller predicts the future with a basketball.”
+
+
+
+
+                                          “A Viking warrior flying an airplane.”
+
+Figure 13. Qualitative comparison. Our method consistently generates text-aligned images for contextually contradicting prompts.
+                                                               3
+                  Ella          Annealing           SD3              R2F              Flux             SAP
+
+
+
+
+                         “An Egyptian pyramid is constructed using modern construction gear.”
+
+
+
+
+                                        “A cat balancing a skyscraper on its nose.”
+
+
+
+
+                                “A cowboy swimming competitively in an Olympic pool.”
+
+
+
+
+                                             “A knight in chess is a unicorn.”
+
+
+
+
+                                     “A man giving a piggyback ride to an elephant.”
+
+
+
+
+                                              “A butterfly is in a bee’s hive.”
+
+
+
+
+                                           “An eagle is swimming under-water.”
+
+
+
+
+                         “A photorealistic image of a bear ironing clothes in a laundry room”
+
+Figure 14. Qualitative comparison. Our method consistently generates text-aligned images for contextually contradicting prompts.
+                                                               4
+                         Ella        Annealing           SD3              R2F             Flux            SAP
+
+
+
+                Seed 1
+                Seed 2
+                Seed 3
+
+
+
+
+                                               “a professional boxer does a split.”
+                Seed 1
+                Seed 2
+                Seed 3
+
+
+
+
+                                                 “A woman writing with a dart.”
+                Seed 1
+                Seed 2
+                Seed 3
+
+
+
+
+                                           “A man riding a jet ski through the desert.”
+Figure 15. Qualitative comparison across multiple seeds. Our method consistently generates text-aligned images for contextually contra-
+dicting prompts.
+
+                                                                  5
+                       Table 8. Full LLM prompt instruction SAP, used to decompose prompts by denoising stages.
+
+<System Prompt>
+You are an expert assistant in time step dependent prompt conditioning for diffusion models.
+Your task is to decompose a complex or contextually contradictory prompt into up to three intermediate prompts that align with the model’s
+denoising stages — from background layout to object identity to fine detail. Only introduce prompt transitions when needed.
+Diffusion Semantics (Low → High Frequency Progression):
+Steps 0–2: Scene layout and dominant color regions (e.g., sky, forest, sand tone)
+Steps 3–6: Object shape, size, pose, and position
+Steps 7–10: Object identity, material, and surface type (e.g., glass vs. rubber)
+Steps 11–13+: Fine features and local details (e.g., tattoos, insects, facial detail)
+Since denoising progresses from coarse to fine, it is crucial to stabilize large-scale visual structures (such as body shape, pose, and back-
+ground) before introducing small or semantically charged elements (such as facial details, objects in hand, or surreal features).
+Substitution Strategy:
+1. Begin with high-level layout (background, geometry).
+2. Use placeholder concepts if needed to stabilize layout before detailed insertions.
+3. Substitutes must match in shape, size, and visual function.
+4. Replace placeholders as soon as fidelity permits.
+5. Do not maintain substitutions longer than needed.
+6. If the prompt is visually coherent, return a single prompt with no decomposition.
+
+Output Format:
+a. Explanation: A short sentence explaining why decomposition is needed.
+b. Final dictionary:
+
+{
+    "prompts_list": [
+      "<prompt1>",
+      "<prompt2>",
+      "...",
+      "<target prompt>"
+    ],
+    "switch_prompts_steps": [<step1>, <step2>, ...]
+}
+
+- The length of switch prompts steps should be one less than prompts list.
+- Do not include any text outside this structure.
+
+
+
+
+                                                                     6
+            Table 9. In-context examples SAP, illustrating reasoning steps and prompt decomposition across denoising stages.
+
+Input: A polar bear in a desert
+Output:
+a. Explanation: A polar bear is common in snowy scenes, not deserts. Since no suitable object proxy exists, the prompt starts with the
+desert alone before introducing the unlikely animal.
+b. Final dictionary:
+
+{
+    "prompts_list": [
+      "A desert",
+      "A polar bear in a desert"
+    ],
+    "switch_prompts_steps": [2]
+}
+
+Input: A fox in a nursery
+Output:
+a. Explanation: A fox is uncommon in indoor scenes. Starting with a dog, then a visually similar breed (Shiba Inu), provides a natural
+proxy before introducing the fox in a childlike setting.
+b. Final dictionary:
+
+{
+    "prompts_list": [
+      "A dog in a nursery",
+      "A Shiba Inu dog in a nursery",
+      "A fox in a baby room"
+    ],
+    "switch_prompts_steps": [4, 7]
+}
+
+Input: A shoes tree in the meadow
+Output:
+a. Explanation: Treating a “shoes tree” like an “apple tree” allows the model to build structure and object layout using familiar patterns.
+Introducing apples first grounds the scene in a biologically plausible layout before shifting to the surreal concept of shoes as fruit-like
+objects.
+b. Final dictionary:
+
+{
+    "prompts_list": [
+      "tree in the meadow",
+      A tree full of apples, in the meadow",
+      "A tree full of shoes in the meadow"
+    ],
+    "switch_prompts_steps": [4,8]
+}
+
+Input: A red sports car parked on a mountain road
+Output:
+a. Explanation: This is a realistic and visually coherent scene, so no decomposition is needed.
+b. Final dictionary:
+
+{
+    "prompts_list": [
+      "A red sports car parked on a mountain road"
+    ],
+    "switch_prompts_steps": []
+}
+
+
+
+                                                                     7
+                           Table 10. Prompt decompositions of contradictory prompts using SAP.
+
+  Original Prompt          Explanation                                                     Prompt Sequence                          Switch Step(s)
+  A grown man has a        The grown man is established first for structure, while                                                        4
+  baby’s pacifier in his   the pacifier, being a small but semantically significant        1. A grown man with a small object
+  mouth.                   detail, is added once the main identity is resolved.               in his mouth
+                                                                                           2. A grown man has a baby’s paci-
+                                                                                              fier in his mouth
+  A dragon is blowing      Dragons are more commonly depicted blowing fire. A                                                             3
+  water.                   proxy of white smoke is visually similar to water mist in       1. A dragon blowing white smoke
+                           texture, stabilizing the emission process before resolv-        2. A dragon blowing water
+                           ing the surreal water emission.
+  A pizza with grape       Pizza with traditional toppings stabilizes the geometry                                                        3
+  toppings.                and color before introducing the visually similar yet un-       1. A pizza with pepperoni toppings
+                           usual grape topping.                                            2. A pizza with grape toppings
+
+  A coin floats on the     Coins typically sink in water, not float. Starting with                                                        4
+  surface of the water.    a leaf—an object that naturally floats—ensures that this        1. A leaf floats on the surface of the
+                           behavior within the scene is handled correctly before in-          water
+                           troducing the coin.                                             2. A coin floats on the surface of the
+                                                                                              water
+  A cockatoo parrot        Cockatoos are birds and naturally do not swim; start-                                                         3, 6
+  swimming in the          ing with a simple bird on water stabilizes position and         1. A duck swimming in the ocean
+  ocean.                   motion. Progressing to a duck, before introducing the           2. A parrot swimming in the ocean
+                           cockatoo parrot, eases the transition into the final sur-       3. A cockatoo parrot swimming in
+                           real visual.                                                       the ocean
+
+  Shrek is blue.           Shrek is a distinct character with a recognizable green                                                        3
+                           color. Using a simple b̈lue ogreı̈nitially sets the stage for   1. A blue ogre
+                           a color change before fully introducing Shrek to ensure         2. Shrek is blue
+                           visual coherence.
+  A professional boxer     Professional boxers are typically shown in athletic                                                           3, 6
+  does a split.            stances related to fighting, not performing a split. Start-     1. A gymnast performing a split
+                           ing with a gymnast performing a split supports the ac-          2. A boxer performing a split
+                           tion, introducing a boxer in similar attire balances iden-      3. A professional boxer doing a
+                           tity shift without disrupting the pose.                            split
+
+
+
+
+Table 11. ContraBench. A curated benchmark of 40 contradictory prompts for evaluating text-to-image models.
+ ID      Prompt                                                        ID       Prompt
+   1     A professional boxer does a split                             21       A mosquito pulling a royal carriage through Times Square
+   2     A bear performing a handstand in the park                     22       A grandma is ice skating on the roof
+   3     A bodybuilder balancing on point shoes                        23       A baseball player backswing a yellow ball with a golf club
+   4     A chicken is smiling                                          24       A house with a circular door
+   5     A cruise ship parked in a bathtub                             25       A photorealistic image of a bear ironing clothes in a laundry room
+   6     A man giving a piggyback ride to an elephant                  26       A pizza being used as an umbrella in the rain
+   7     A zebra climbing a tree                                       27       A cubist lion hiding in a photorealistic jungle
+   8     A coffee machine dispensing glitter                           28       A cowboy swimming competitively in an Olympic pool
+   9     A vending machine in a human running posture                  29       A realistic photo of an elephant wearing slippers
+  10     A ballerina aggressively flipping a table                     30       A computer mouse eating a piece of cheese
+  11     A bathtub floating above a desert in a tornado                31       A horse taking a selfie with a smartphone
+  12     A monkey juggles tiny elephants                               32       A sheep practicing yoga on a mat
+  13     A woman has a marine haircut                                  33       A snake eating a small golden guitar
+  14     A tower with two hands                                        34       A soccer field painted on a grain of rice
+  15     An archer is shooting flowers with a bow                      35       A snake with feet
+  16     A muscular ferret in the woods                                36       A woman brushing her teeth with a paintbrush
+  17     A barn built atop a skyscraper rooftop                        37       A horse with a hump
+  18     A cat balancing a skyscraper on its nose                      38       A hyperrealistic unicorn made of origami
+  19     A cow grazing on a city rooftop                               39       A library printed on a butterfly’s wings
+  20     A fireplace burning inside an igloo                           40       A photorealistic photo of SpongeBob SquarePants dancing ballet
+
+
+
+
+                                                                            8
+     Table 12. Whoops-Hard. A curated subset of 100 challenging prompts from the Whoops! benchmark.
+ID   Prompt                                            ID        Prompt
+ 1   A bouquet of flowers is upside down in a vase      51       A Japanese tea ceremony uses coffee instead of tea
+ 2   A man is welding without a mask                    52       A wagon is being pushed from behind by two opposite facing horses
+ 3   A man eats hamburgers in a baby chair              53       The Girl with a Pearl Earring wears a golden hoop earring
+ 4   A turn right street sign with a left turn arrow    54       A chandelier is hanging low to the ground
+ 5   Goldilocks sleeps with four bears                  55       The portrait of the Mona Lisa depicts a stern male face
+ 6   A cake wishes a happy 202nd birthday               56       A car with the steering wheel right in the middle of the dashboard
+ 7   Children are unhappy at Disneyland                 57       A pagoda sits in front of the Eiffel Tower
+ 8   An orange carved as a Jack O’Lantern               58       A man without protection next to a swarm of bees
+ 9   A pen is being sharpened in a pencil sharpener     59       A kiwi bird in a green bamboo forest
+10   Steve Jobs demonstrating a Microsoft tablet        60       The Sphinx is decorated like a sarcophagus outside a Mayan temple
+11   Shrek is blue                                      61       A butterfly is in a bee’s hive
+12   A MacBook with a pear logo on it                   62       A rainbow colored tank
+13   A woman hits an eight ball with a racket           63       Movie goers nibble on vegetables instead of popcorn
+14   Vikings ride on public transportation              64       A grown man has a baby’s pacifier in his mouth
+15   A gift wrapped junked car                          65       A full pepper shaker turned upside down with nothing coming out
+16   A rainbow is filling the stormy sky at night       66       The Tiger King, Joe Exotic, poses with an adult saber-tooth tiger
+17   John Lennon using a MacBook                        67       A scale is balanced with one side full and the other empty
+18   Michelangelo’s David is covered by a fig leaf      68       A pizza box is full of sushi
+19   Chuck Norris struggles to lift weights             69       A man wearing a dog recovery cone collar while staring at his dog
+20   Paratroopers deploy out of hot air balloons        70       A woman’s mirror reflection is wearing different clothes
+21   A train on asphalt                                 71       A woman using an umbrella made of fishnet in the rain
+22   Lionel Messi playing tennis                        72       A field of sunflowers with pink petals
+23   A man jumping into an empty swimming pool          73       An eagle swimming under water
+24   An airplane inside a small car garage              74       A woman stands in front of a reversed reflection in a mirror
+25   An upside down knife about to slice a tomato       75       Stars visible in the sky with a bright afternoon sun
+26   Dirty dishes in a bathroom sink                    76       A car with an upside down Mercedes-Benz logo
+27   A roulette wheel used as a dart board              77       An owl perched upside down on a branch
+28   A smartphone plugged into a typewriter             78       A man in a wheelchair ascends steps
+29   A passenger plane parked in a parking lot          79       Bach using sound mixing equipment
+30   Guests are laughing at a funeral                   80       A steam train on a track twisted like a roller coaster
+31   A cat chasing a dog down the street                81       Roman centurions fire a cannon
+32   The Statue of Liberty is holding a sword           82       A crab with four claws
+33   A Rubik’s cube with ten purple squares             83       Elon Musk wearing a shirt with a Meta logo
+34   A girl roller skating on an ice rink               84       A compass with North South South West points
+35   A butterfly swimming under the ocean               85       A glass carafe upside down with contents not pouring
+36   Lightning striking a shack on a sunny day          86       Princess Diana standing in front of her grown son, Prince Harry
+37   The Cookie Monster is eating apples                87       A children’s playground set in the color black
+38   A man is given a purple blood transfusion          88       A mug of hot tea with a plastic straw
+39   An unpeeled banana in a blender                    89       A whole pomegranate inside a corked glass bottle
+40   A square apple                                     90       Belle from Beauty and the Beast about to kiss the Frog Prince
+41   A place setting has two knives                     91       A person’s feet facing opposite directions
+42   A koala in an Asian landscape                      92       A bowl of cereal in water
+43   A mouse eats a snake                               93       A boy playing frisbee with a porcelain disk
+44   A field of carrots growing above ground            94       A chef prepares a painting
+45   A pregnant woman eating raw salmon                 95       A dragon blowing water
+46   A tiger staring at zebras in the savanna           96       The lip of a pitcher on the same side as the handle
+47   Albert Einstein driving a drag racing car          97       Greta Thunberg holding a disposable plastic cup
+48   A soccer player about to kick a bowling ball       98       A fortune teller predicting the future with a basketball
+49   An old man riding a unicycle                       99       A balloon lifting up a package
+50   A hockey player drives a golf ball down the ice   100       Bruce Lee in a yellow leotard and tutu practicing ballet
+
+
+
+
+                                                             9
+              Table 13. VLM instruction for evaluation. Used by GPT-4o to score semantic alignment of generated images.
+
+You are an assistant evaluating an image on how well it aligns with the meaning of a given text prompt.
+The text prompt is: "{prompt}"
+
+PROMPT ALIGNMENT (Semantic Fidelity)
+Evaluate only the meaning conveyed by the image — ignore visual artifacts.
+Focus on:
+• Are the correct objects present and depicted in a way that clearly demonstrates their intended roles and actions from the prompt?
+• Does the scene illustrate the intended situation or use-case in a concrete and functional way, rather than through symbolic, metaphorical,
+  or hybrid representation?
+• If the described usage or interaction is missing or unclear, alignment should be penalized.
+• Focus strictly on the presence, roles, and relationships of the described elements — not on rendering quality.
+Score from 1 to 5:
+• 5: Fully conveys the prompt’s meaning with correct elements
+• 4: Mostly accurate — main elements are correct, with minor conceptual or contextual issues
+• 3: Main subjects are present but important attributes or actions are missing or wrong
+• 2: Some relevant components are present, but key elements or intent are significantly misrepresented
+• 1: Does not reflect the prompt at all
+Respond using this format:
+     ### ALIGNMENT SCORE: <score>
+     ### ALIGNMENT EXPLANATION: <explanation>
+
+
+
+
+                                                                    10
+
